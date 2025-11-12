@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "betIQ Table Column Extractor",
+  "version": "1.0.0",
+  "description": "Extract table column data from betIQ tables",
+  "permissions": [
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://betiq.vercel.app/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://betiq.vercel.app/*"],
+      "js": [
+        "js/utils.js",
+        "js/storage.js",
+        "js/apiInterceptor.js",
+        "js/tableGenerator.js",
+        "js/columns.js",
+        "js/configSection.js",
+        "js/observer.js",
+        "content.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "betIQ Table Extractor"
+  }
+}
+
