@@ -69,10 +69,6 @@
         try {
           const original = globalObj.fetch;
           globalObj.fetch = fetchImpl;
-          console.log(
-            "[betIQ-Plugin] Intercepted fetch on:",
-            globalObj === window ? "window" : "other"
-          );
         } catch (e) {
           // Can't replace, that's okay
         }
@@ -184,13 +180,17 @@
         // If we can't make it non-configurable, that's okay
       }
 
-      console.log("[betIQ-Plugin] Early fetch interception set up");
+      if (window.betiqDebugEnabled) {
+        console.log("[betIQ-Plugin] Early fetch interception set up");
+      }
     } else if (window.fetch && window.fetch._betIQIntercepted) {
-      console.log("[betIQ-Plugin] Early fetch already intercepted, skipping");
+      // Already intercepted, skip
     } else {
-      console.warn(
-        "[betIQ-Plugin] window.fetch not available for early interception"
-      );
+      if (window.betiqDebugEnabled) {
+        console.warn(
+          "[betIQ-Plugin] window.fetch not available for early interception"
+        );
+      }
     }
   })();
 
@@ -198,8 +198,6 @@
    * Handle intercepted API response
    */
   function handleAPIResponse(data) {
-    console.log("[betIQ-Plugin] handleAPIResponse called with:", data);
-
     if (Array.isArray(data) && data.length > 0) {
       window.betIQ.setCapturedBettingData(data);
 
@@ -225,13 +223,8 @@
   window.betIQ.interceptSupabaseAPI = function () {
     // Prevent double setup - if already fully set up, just return
     if (window.fetch && window.fetch._betIQFullyIntercepted) {
-      console.log(
-        "[betIQ-Plugin] API interception already fully set up, skipping"
-      );
       return;
     }
-
-    console.log("[betIQ-Plugin] Setting up API interception");
 
     // Get the current fetch (might already be intercepted)
     let currentFetch = window.fetch;
@@ -241,15 +234,15 @@
       if (currentFetch._original) {
         // If already intercepted, use the stored original
         currentFetch = window.fetch._original;
-        console.log("[betIQ-Plugin] Using existing original fetch from chain");
       } else {
-        console.warn(
-          "[betIQ-Plugin] Fetch is marked as intercepted but has no _original!"
-        );
+        if (window.betiqDebugEnabled) {
+          console.warn(
+            "[betIQ-Plugin] Fetch is marked as intercepted but has no _original!"
+          );
+        }
         // Try to use native fetch if we have it
         if (nativeFetch) {
           currentFetch = nativeFetch;
-          console.log("[betIQ-Plugin] Using stored native fetch");
         }
       }
     } else {
@@ -307,23 +300,26 @@
         (urlString && urlString.includes("betting_alerts"));
 
       if (isTargetEndpoint) {
-        console.log(
-          "[betIQ-Plugin] Intercepted API call:",
-          method,
-          decodedUrl || urlString
-        );
-        console.log("[betIQ-Plugin] Fetching API data...");
+        if (window.betiqDebugEnabled) {
+          console.log(
+            "[betIQ-Plugin] Intercepted API call:",
+            method,
+            decodedUrl || urlString
+          );
+        }
 
         try {
           const response = await originalFetch.apply(this, args);
 
           // Only process successful responses
           if (!response.ok) {
-            console.warn(
-              "[betIQ-Plugin] API response not OK:",
-              response.status,
-              response.statusText
-            );
+            if (window.betiqDebugEnabled) {
+              console.warn(
+                "[betIQ-Plugin] API response not OK:",
+                response.status,
+                response.statusText
+              );
+            }
             return response;
           }
 
@@ -394,9 +390,6 @@
       if (descriptor && !descriptor.configurable) {
         // Already non-configurable, skip reassignment
         // The early interceptor already set it up
-        console.log(
-          "[betIQ-Plugin] Fetch is already non-configurable, skipping reassignment"
-        );
       } else {
         // Can be reassigned
         window.fetch = newFetch;
@@ -471,28 +464,10 @@
 
         // Track XHR calls
         xhrCallCount++;
-        if (xhrCallCount === 1) {
-          console.log("[betIQ-Plugin] 📡 First XHR call detected!");
-        }
-        if (xhrCallCount <= 5) {
-          console.log(
-            "[betIQ-Plugin] 📡 XHR call #" + xhrCallCount + ":",
-            method,
-            this._betIQUrl.substring(0, 100)
-          );
-        }
 
         // Skip OPTIONS requests
         if (method === "OPTIONS") {
           return originalXHRSend.apply(this, args);
-        }
-
-        if (this._betIQUrl.includes("supabase.co")) {
-          console.log(
-            "[betIQ-Plugin] ✅ SUPABASE XHR:",
-            method,
-            this._betIQUrl
-          );
         }
 
         // Decode URL safely
@@ -508,11 +483,13 @@
           this._betIQUrl.includes("betting_alerts");
 
         if (isTargetEndpoint) {
-          console.log(
-            "[betIQ-Plugin] Intercepted XHR API call:",
-            method,
-            decodedUrl || this._betIQUrl
-          );
+          if (window.betiqDebugEnabled) {
+            console.log(
+              "[betIQ-Plugin] Intercepted XHR API call:",
+              method,
+              decodedUrl || this._betIQUrl
+            );
+          }
 
           const originalOnReadyStateChange = this.onreadystatechange;
           this.onreadystatechange = function () {
@@ -579,28 +556,10 @@
       return originalXHRSend.apply(this, args);
     };
 
-    console.log("[betIQ-Plugin] XMLHttpRequest interception also set up");
-
     // Mark as fully intercepted (update the flag on the fetch function)
     if (window.fetch) {
       window.fetch._betIQFullyIntercepted = true;
     }
-
-    // Test interception by checking fetch
-    console.log("[betIQ-Plugin] Fetch interception verification:");
-    console.log("[betIQ-Plugin] - window.fetch type:", typeof window.fetch);
-    console.log(
-      "[betIQ-Plugin] - window.fetch is intercepted:",
-      !!window.fetch._betIQIntercepted
-    );
-    console.log(
-      "[betIQ-Plugin] - window.fetch has original:",
-      !!window.fetch._original
-    );
-    console.log(
-      "[betIQ-Plugin] - window.fetch is fully intercepted:",
-      !!window.fetch._betIQFullyIntercepted
-    );
   };
 
   /**
@@ -608,14 +567,20 @@
    * https://bbvlgmogzngtlzhmvegn.supabase.co/rest/v1/betting_alerts
    */
   window.betIQ.testInterception = function () {
-    console.log("[betIQ-Plugin] Testing interception with a test URL");
+    if (window.betiqDebugEnabled) {
+      console.log("[betIQ-Plugin] Testing interception with a test URL");
+    }
     fetch("https://bbvlgmogzngtlzhmvegn.supabase.co/rest/v1/betting_alerts")
       .then((response) => {
-        console.log("[betIQ-Plugin] Test fetch succeeded:", response.status);
+        if (window.betiqDebugEnabled) {
+          console.log("[betIQ-Plugin] Test fetch succeeded:", response.status);
+        }
         return response.json();
       })
       .then((data) => {
-        console.log("[betIQ-Plugin] Test fetch data:", data);
+        if (window.betiqDebugEnabled) {
+          console.log("[betIQ-Plugin] Test fetch data:", data);
+        }
       })
       .catch((error) => {
         console.error("[betIQ-Plugin] Test fetch error:", error);
@@ -640,34 +605,35 @@
     ].filter(Boolean);
 
     if (possibleClients.length > 0) {
-      console.log(
-        "[betIQ-Plugin] Found Supabase client(s):",
-        possibleClients.length
-      );
+      if (window.betiqDebugEnabled) {
+        console.log(
+          "[betIQ-Plugin] Found Supabase client(s):",
+          possibleClients.length
+        );
+      }
       possibleClients.forEach((client, index) => {
-        console.log(`[betIQ-Plugin] Supabase client ${index}:`, client);
         // Try to intercept the client's fetch method
         if (client.fetch) {
           const originalClientFetch = client.fetch;
           client.fetch = function (...args) {
-            console.log(
-              "[betIQ-Plugin] Supabase client fetch called:",
-              args[0]
-            );
             return originalClientFetch.apply(this, args).then((response) => {
               if (args[0] && args[0].includes("betting_alerts")) {
-                console.log(
-                  "[betIQ-Plugin] 🎯 Supabase client fetch intercepted target endpoint!"
-                );
+                if (window.betiqDebugEnabled) {
+                  console.log(
+                    "[betIQ-Plugin] 🎯 Supabase client fetch intercepted target endpoint!"
+                  );
+                }
                 response
                   .clone()
                   .json()
                   .then((data) => {
-                    console.log(
-                      `[betIQ-Plugin] Supabase client response: ${
-                        Array.isArray(data) ? data.length : "N/A"
-                      } items`
-                    );
+                    if (window.betiqDebugEnabled) {
+                      console.log(
+                        `[betIQ-Plugin] Supabase client response: ${
+                          Array.isArray(data) ? data.length : "N/A"
+                        } items`
+                      );
+                    }
                     handleAPIResponse(data);
                   })
                   .catch((e) =>
@@ -677,17 +643,8 @@
               return response;
             });
           };
-          console.log("[betIQ-Plugin] Hooked into Supabase client fetch");
-        } else {
-          console.log(
-            `[betIQ-Plugin] Supabase client ${index} does not have a fetch method`
-          );
         }
       });
-    } else {
-      console.log(
-        "[betIQ-Plugin] No Supabase client found on window (this is normal if client is not exposed globally)"
-      );
     }
   };
 
@@ -699,7 +656,6 @@
   // Also monitor window for Supabase client
   let supabaseCheckInterval = setInterval(() => {
     if (window.supabase && !window.supabase._betIQHooked) {
-      console.log("[betIQ-Plugin] Detected Supabase client on window.supabase");
       tryHookSupabaseClient();
       window.supabase._betIQHooked = true;
       clearInterval(supabaseCheckInterval);
