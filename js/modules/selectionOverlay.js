@@ -9,6 +9,8 @@
 
   let selectionOverlay = null;
   let checkboxObserver = null;
+  let isDragging = false;
+  let dragOffset = { x: 0, y: 0 };
 
   /**
    * Extract row data (game, player, bet type) from a table row
@@ -91,6 +93,7 @@
         z-index: 10001;
         overflow: hidden;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        user-select: none;
       `;
       document.body.appendChild(selectionOverlay);
     }
@@ -111,8 +114,11 @@
       font-weight: 600;
       font-size: 14px;
       color: #1f2937;
+      cursor: move;
+      user-select: none;
     `;
     header.textContent = `Selected Bets (${selectedData.length})`;
+    header.title = "Drag to move";
 
     const content = document.createElement("div");
     content.style.cssText = `
@@ -170,6 +176,75 @@
     selectionOverlay.innerHTML = "";
     selectionOverlay.appendChild(header);
     selectionOverlay.appendChild(content);
+
+    // Setup drag handlers on the header after it's been added to DOM
+    setupHeaderDragHandlers(header);
+  }
+
+  /**
+   * Setup drag handlers for the overlay header
+   */
+  function setupHeaderDragHandlers(header) {
+    if (!selectionOverlay || !header) return;
+
+    header.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return; // Only left mouse button
+
+      isDragging = true;
+      const rect = selectionOverlay.getBoundingClientRect();
+      dragOffset.x = e.clientX - rect.left;
+      dragOffset.y = e.clientY - rect.top;
+
+      selectionOverlay.style.cursor = "move";
+      header.style.cursor = "move";
+      e.preventDefault();
+      e.stopPropagation();
+    });
+
+    // Use a single mousemove handler on document (more efficient)
+    if (!window.betIQ._selectionOverlayMouseMoveHandler) {
+      window.betIQ._selectionOverlayMouseMoveHandler = (e) => {
+        if (!isDragging || !selectionOverlay) return;
+
+        let left = e.clientX - dragOffset.x;
+        let top = e.clientY - dragOffset.y;
+
+        // Keep overlay within viewport bounds
+        const maxLeft = window.innerWidth - selectionOverlay.offsetWidth;
+        const maxTop = window.innerHeight - selectionOverlay.offsetHeight;
+
+        left = Math.max(0, Math.min(left, maxLeft));
+        top = Math.max(0, Math.min(top, maxTop));
+
+        selectionOverlay.style.left = left + "px";
+        selectionOverlay.style.top = top + "px";
+        selectionOverlay.style.right = "auto";
+      };
+      document.addEventListener(
+        "mousemove",
+        window.betIQ._selectionOverlayMouseMoveHandler
+      );
+    }
+
+    // Use a single mouseup handler on document
+    if (!window.betIQ._selectionOverlayMouseUpHandler) {
+      window.betIQ._selectionOverlayMouseUpHandler = () => {
+        if (isDragging) {
+          isDragging = false;
+          if (selectionOverlay) {
+            selectionOverlay.style.cursor = "";
+            const headerEl = selectionOverlay.querySelector("div:first-child");
+            if (headerEl) {
+              headerEl.style.cursor = "move";
+            }
+          }
+        }
+      };
+      document.addEventListener(
+        "mouseup",
+        window.betIQ._selectionOverlayMouseUpHandler
+      );
+    }
   }
 
   /**
