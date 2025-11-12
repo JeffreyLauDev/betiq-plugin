@@ -872,6 +872,13 @@
     });
 
     columnProcessing = false;
+
+    // Initialize selection overlay after columns are added
+    if (window.betIQ.initSelectionOverlay) {
+      setTimeout(() => {
+        window.betIQ.initSelectionOverlay();
+      }, 100);
+    }
   };
 
   /**
@@ -935,4 +942,291 @@
     window.betIQ.addKellyStakeColumn,
     50
   );
+
+  // ============================================
+  // SELECTION OVERLAY FUNCTIONALITY
+  // ============================================
+
+  let selectionOverlay = null;
+  let checkboxObserver = null;
+
+  /**
+   * Extract row data (game, player, bet type) from a table row
+   */
+  function extractRowData(row) {
+    const cells = row.querySelectorAll("td");
+    if (cells.length < 7) {
+      return null;
+    }
+
+    // Column 4 (index 3): Game
+    const game = (cells[3]?.textContent || "").trim();
+    // Column 6 (index 5): Player
+    const player = (cells[5]?.textContent || "").trim();
+    // Column 7 (index 6): Bet Type
+    const betType = (cells[6]?.textContent || "").trim();
+    // Get data-id
+    const betId = row.getAttribute("data-id") || "";
+
+    if (!game || !player || !betType) {
+      return null;
+    }
+
+    return { game, player, betType, betId };
+  }
+
+  /**
+   * Get all selected rows
+   */
+  function getSelectedRows() {
+    const table = document.querySelector("table");
+    if (!table) {
+      return [];
+    }
+
+    const allRows = table.querySelectorAll("tbody tr, table > tr");
+    const selectedRows = [];
+
+    allRows.forEach((row) => {
+      // Skip header rows
+      if (row.querySelectorAll("th").length > 0) {
+        return;
+      }
+
+      // Check if checkbox is checked
+      const checkbox = row.querySelector('button[role="checkbox"]');
+      if (
+        checkbox &&
+        (checkbox.getAttribute("data-state") === "checked" ||
+          checkbox.getAttribute("aria-checked") === "true")
+      ) {
+        selectedRows.push(row);
+      }
+    });
+
+    return selectedRows;
+  }
+
+  /**
+   * Update the selection overlay
+   */
+  function updateSelectionOverlay() {
+    const selectedRows = getSelectedRows();
+
+    // Remove overlay if no selections or only 1 selection
+    if (selectedRows.length <= 1) {
+      if (selectionOverlay) {
+        selectionOverlay.remove();
+        selectionOverlay = null;
+      }
+      return;
+    }
+
+    // Create overlay if it doesn't exist
+    if (!selectionOverlay) {
+      selectionOverlay = document.createElement("div");
+      selectionOverlay.id = "betiq-selection-overlay";
+      selectionOverlay.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        width: 400px;
+        max-height: 600px;
+        background-color: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+        z-index: 10001;
+        overflow: hidden;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      `;
+      document.body.appendChild(selectionOverlay);
+    }
+
+    // Extract data from selected rows
+    const selectedData = [];
+    selectedRows.forEach((row) => {
+      const data = extractRowData(row);
+      if (data) {
+        selectedData.push(data);
+      }
+    });
+
+    // Build overlay content
+    const header = document.createElement("div");
+    header.style.cssText = `
+      padding: 16px;
+      background-color: #f3f4f6;
+      border-bottom: 1px solid #e5e7eb;
+      font-weight: 600;
+      font-size: 14px;
+      color: #1f2937;
+    `;
+    header.textContent = `Selected Bets (${selectedData.length})`;
+
+    const content = document.createElement("div");
+    content.style.cssText = `
+      padding: 12px;
+      max-height: 500px;
+      overflow-y: auto;
+    `;
+
+    if (selectedData.length === 0) {
+      content.innerHTML = `
+        <div style="padding: 16px; text-align: center; color: #6b7280; font-size: 13px;">
+          No valid data found in selected rows
+        </div>
+      `;
+    } else {
+      selectedData.forEach((data, index) => {
+        const item = document.createElement("div");
+        item.style.cssText = `
+          padding: 12px;
+          margin-bottom: ${index < selectedData.length - 1 ? "8px" : "0"};
+          background-color: #f9fafb;
+          border: 1px solid #e5e7eb;
+          border-radius: 6px;
+          font-size: 12px;
+        `;
+
+        const gameDiv = document.createElement("div");
+        gameDiv.style.cssText = `
+          font-weight: 600;
+          color: #1f2937;
+          margin-bottom: 4px;
+        `;
+        gameDiv.textContent = data.game;
+
+        const playerDiv = document.createElement("div");
+        playerDiv.style.cssText = `
+          color: #374151;
+          margin-bottom: 2px;
+        `;
+        playerDiv.textContent = `Player: ${data.player}`;
+
+        const betTypeDiv = document.createElement("div");
+        betTypeDiv.style.cssText = `
+          color: #374151;
+        `;
+        betTypeDiv.textContent = `Bet Type: ${data.betType}`;
+
+        item.appendChild(gameDiv);
+        item.appendChild(playerDiv);
+        item.appendChild(betTypeDiv);
+        content.appendChild(item);
+      });
+    }
+
+    // Clear and update overlay
+    selectionOverlay.innerHTML = "";
+    selectionOverlay.appendChild(header);
+    selectionOverlay.appendChild(content);
+  }
+
+  /**
+   * Setup observer for checkbox changes
+   */
+  function setupCheckboxObserver() {
+    const table = document.querySelector("table");
+    if (!table) {
+      return;
+    }
+
+    // Disconnect existing observer if it exists
+    if (checkboxObserver) {
+      checkboxObserver.disconnect();
+      checkboxObserver = null;
+    }
+
+    // Use MutationObserver to watch for checkbox state changes
+    checkboxObserver = new MutationObserver((mutations) => {
+      let shouldUpdate = false;
+
+      mutations.forEach((mutation) => {
+        if (mutation.type === "attributes") {
+          const target = mutation.target;
+          // Check if it's a checkbox state change
+          if (
+            target.tagName === "BUTTON" &&
+            target.getAttribute("role") === "checkbox" &&
+            (mutation.attributeName === "data-state" ||
+              mutation.attributeName === "aria-checked")
+          ) {
+            shouldUpdate = true;
+          }
+        }
+
+        // Check for added/removed checkboxes
+        if (mutation.type === "childList") {
+          mutation.addedNodes.forEach((node) => {
+            if (
+              node.nodeType === 1 &&
+              (node.tagName === "BUTTON" ||
+                node.querySelector?.('button[role="checkbox"]'))
+            ) {
+              shouldUpdate = true;
+            }
+          });
+        }
+      });
+
+      if (shouldUpdate) {
+        // Debounce updates to avoid too many re-renders
+        if (window.betIQ.debounce) {
+          if (!window.betIQ._selectionUpdateTimeout) {
+            window.betIQ._selectionUpdateTimeout = setTimeout(() => {
+              updateSelectionOverlay();
+              window.betIQ._selectionUpdateTimeout = null;
+            }, 100);
+          }
+        } else {
+          updateSelectionOverlay();
+        }
+      }
+    });
+
+    // Observe the table for changes
+    checkboxObserver.observe(table, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-state", "aria-checked"],
+    });
+
+    // Also listen for click events on checkboxes as a fallback
+    table.addEventListener("click", (e) => {
+      const checkbox = e.target.closest('button[role="checkbox"]');
+      if (checkbox) {
+        setTimeout(() => {
+          updateSelectionOverlay();
+        }, 50);
+      }
+    });
+  }
+
+  /**
+   * Initialize selection overlay
+   */
+  window.betIQ.initSelectionOverlay = function () {
+    setupCheckboxObserver();
+    // Initial update
+    updateSelectionOverlay();
+  };
+
+  // Auto-initialize when table is ready
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => {
+      setTimeout(() => {
+        if (document.querySelector("table")) {
+          window.betIQ.initSelectionOverlay();
+        }
+      }, 1000);
+    });
+  } else {
+    setTimeout(() => {
+      if (document.querySelector("table")) {
+        window.betIQ.initSelectionOverlay();
+      }
+    }, 1000);
+  }
 })();

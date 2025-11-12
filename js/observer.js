@@ -128,6 +128,12 @@
         ) {
           window.betIQ.generateBettingDataTable();
         }
+        // Re-initialize selection overlay when table changes
+        if (window.betIQ.initSelectionOverlay) {
+          setTimeout(() => {
+            window.betIQ.initSelectionOverlay();
+          }, 200);
+        }
       }
     });
 

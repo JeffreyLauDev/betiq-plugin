@@ -670,6 +670,11 @@
                   .clone()
                   .json()
                   .then((data) => {
+                    console.log(
+                      `[betIQ-Plugin] Supabase client response: ${
+                        Array.isArray(data) ? data.length : "N/A"
+                      } items`
+                    );
                     handleAPIResponse(data);
                   })
                   .catch((e) =>
@@ -680,8 +685,16 @@
             });
           };
           console.log("[betIQ-Plugin] Hooked into Supabase client fetch");
+        } else {
+          console.log(
+            `[betIQ-Plugin] Supabase client ${index} does not have a fetch method`
+          );
         }
       });
+    } else {
+      console.log(
+        "[betIQ-Plugin] No Supabase client found on window (this is normal if client is not exposed globally)"
+      );
     }
   };
 
