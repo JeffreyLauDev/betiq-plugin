@@ -46,7 +46,16 @@
    * API might have game_time or we might need to extract from created_at/other fields
    */
   function normalizeAPIGameTime(apiBet) {
-    // Try game_time field first
+    // Try game_datetime first (betting_alerts endpoint format: "13/11 14:00")
+    if (apiBet.game_datetime) {
+      const gameTime = apiBet.game_datetime;
+      if (typeof gameTime === "string") {
+        // game_datetime might already be in format "13/11 14:00" - just normalize it
+        return normalizeText(gameTime);
+      }
+    }
+
+    // Try game_time field (v_betting_alert_confidence_optimized endpoint)
     if (apiBet.game_time) {
       const gameTime = apiBet.game_time;
       if (typeof gameTime === "string") {
@@ -71,18 +80,25 @@
       return normalizeText(gameTime);
     }
 
-    // If game_time doesn't exist, return empty string (we'll match without it)
+    // If neither exists, return empty string (we'll match without it)
     return "";
   }
 
   /**
    * Get bet type from API data
    * API might have bet_type field, or we might need to infer it
+   * Handle different field name conventions
    */
   function getAPIBetType(bet) {
-    // Try bet_type field first
+    // Try different possible field names
     if (bet.bet_type) {
       return normalizeText(bet.bet_type);
+    }
+    if (bet.type) {
+      return normalizeText(bet.type);
+    }
+    if (bet.direction) {
+      return normalizeText(bet.direction);
     }
 
     // If not available, return empty string (we'll match without it)
@@ -141,14 +157,23 @@
     // Try to match with API data
     for (const bet of apiData) {
       // Extract and normalize API fields
-      const apiGame = normalizeText(bet.game || "");
+      // Handle different field name conventions (betting_alerts vs v_betting_alert_confidence_optimized)
+      const apiGame = normalizeText(
+        bet.game || bet.game_name || bet.match || bet.matchup || ""
+      );
       const apiGameTime = normalizeAPIGameTime(bet);
-      const apiPlayer = normalizeText(bet.player || "");
+      const apiPlayer = normalizeText(
+        bet.player || bet.player_name || bet.athlete || ""
+      );
       const apiBetType = getAPIBetType(bet);
-      const apiProp = normalizeText(bet.prop || "");
+      const apiProp = normalizeText(
+        bet.prop || bet.prop_type || bet.stat_type || ""
+      );
       const apiConfidence =
         bet.confidence_score !== undefined && bet.confidence_score !== null
           ? parseFloat(bet.confidence_score)
+          : bet.confidence !== undefined && bet.confidence !== null
+          ? parseFloat(bet.confidence)
           : null;
 
       // Game, Player, and Prop must match (required)
@@ -157,12 +182,38 @@
         apiPlayer !== playerText ||
         apiProp !== propText
       ) {
+        // Skip this bet - doesn't match required fields
         continue;
       }
 
       // Game Time matching (if both are present, they must match)
+      // Handle formats with/without seconds: "13/11 14:00" vs "13/11 14:00:00"
       if (gameTimeText && apiGameTime) {
-        if (apiGameTime !== gameTimeText) {
+        // Normalize both by removing seconds if present for comparison
+        // Check if time has seconds (format: HH:MM:SS) by counting colons in time part
+        const normalizeTime = (timeStr) => {
+          const parts = timeStr.split(" ");
+          if (parts.length < 2) return timeStr;
+
+          const datePart = parts[0]; // "13/11"
+          const timePart = parts[1]; // "14:00:00" or "14:00"
+
+          // If time part has 2 colons (HH:MM:SS), remove seconds
+          if ((timePart.match(/:/g) || []).length === 2) {
+            // Has seconds, remove them: "14:00:00" -> "14:00"
+            const timeWithoutSeconds = timePart.replace(/:\d{2}$/, "");
+            return `${datePart} ${timeWithoutSeconds}`;
+          }
+
+          // No seconds, return as is
+          return timeStr;
+        };
+
+        const normalizedTableTime = normalizeTime(gameTimeText);
+        const normalizedAPITime = normalizeTime(apiGameTime);
+
+        if (normalizedAPITime !== normalizedTableTime) {
+          // Game time doesn't match, skip this bet
           continue;
         }
       }
@@ -345,8 +396,26 @@
 
         // Try to match and assign ID
         const matchedBet = matchRowWithData(row, capturedBettingData);
-        if (matchedBet && matchedBet.bet_id) {
-          const betId = matchedBet.bet_id;
+        if (matchedBet) {
+          // Try bet_id first, then id, then generate from other fields
+          const betId =
+            matchedBet.bet_id ||
+            matchedBet.id ||
+            (matchedBet.game && matchedBet.player && matchedBet.prop
+              ? `${matchedBet.game}_${matchedBet.player}_${matchedBet.prop}`
+              : null);
+
+          if (!betId) {
+            if (window.betiqDebugEnabled) {
+              console.warn(
+                "[betIQ-Plugin] Matched bet has no ID field:",
+                matchedBet,
+                "Available fields:",
+                Object.keys(matchedBet)
+              );
+            }
+            return; // Skip this row if no ID found
+          }
 
           // Check for duplicate ID
           if (betIdMap.has(betId)) {
@@ -400,6 +469,19 @@
         } else {
           // Could not match this row, mark as missing ID
           missingIdRows.push(row);
+          if (window.betiqDebugEnabled) {
+            const cells = row.querySelectorAll("td");
+            if (cells.length >= 9) {
+              console.log(
+                "[betIQ-Plugin] Could not match row:",
+                `Game: "${extractCellText(cells[3])}"`,
+                `Player: "${extractCellText(cells[5])}"`,
+                `Prop: "${extractCellText(cells[8])}"`,
+                `Bet Type: "${extractCellText(cells[6])}"`,
+                `Game Time: "${extractCellText(cells[4])}"`
+              );
+            }
+          }
         }
       });
     });

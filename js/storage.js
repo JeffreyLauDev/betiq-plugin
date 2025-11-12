@@ -296,14 +296,42 @@
    */
   window.betIQ.setCapturedBettingData = function (data) {
     if (Array.isArray(data)) {
-      // Merge new data into cache using bet_id as key
+      // Log first item to see field structure
+      if (data.length > 0 && window.betiqDebugEnabled) {
+        console.log(
+          "[betIQ-Plugin] Sample API data fields:",
+          Object.keys(data[0])
+        );
+        console.log("[betIQ-Plugin] Sample API data:", data[0]);
+      }
+
+      // Merge new data into cache using bet_id or id as key
+      let cachedCount = 0;
       data.forEach((bet) => {
-        if (bet && bet.bet_id) {
-          bettingDataCache[bet.bet_id] = bet;
+        if (bet) {
+          // Try bet_id first, then id, then generate a key from other fields
+          const betId =
+            bet.bet_id ||
+            bet.id ||
+            (bet.game && bet.player && bet.prop
+              ? `${bet.game}_${bet.player}_${bet.prop}`
+              : null);
+
+          if (betId) {
+            bettingDataCache[betId] = bet;
+            cachedCount++;
+          } else if (window.betiqDebugEnabled) {
+            console.warn(
+              "[betIQ-Plugin] Bet missing ID field:",
+              bet,
+              "Available fields:",
+              Object.keys(bet)
+            );
+          }
         }
       });
       console.log(
-        `[betIQ-Plugin] Cached ${data.length} bets. Total in cache: ${
+        `[betIQ-Plugin] Cached ${cachedCount} bets. Total in cache: ${
           Object.keys(bettingDataCache).length
         }`
       );

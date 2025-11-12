@@ -123,10 +123,8 @@
 
         // Check if this is our target endpoint
         const isTargetEndpoint =
-          (decodedUrl &&
-            decodedUrl.includes("v_betting_alert_confidence_optimized")) ||
-          (urlString &&
-            urlString.includes("v_betting_alert_confidence_optimized"));
+          (decodedUrl && decodedUrl.includes("betting_alerts")) ||
+          (urlString && urlString.includes("betting_alerts"));
 
         if (isTargetEndpoint) {
           try {
@@ -305,10 +303,8 @@
       // Check if this is a call to the betting alert confidence endpoint
       // Check both original and decoded URL to handle encoding
       const isTargetEndpoint =
-        (decodedUrl &&
-          decodedUrl.includes("v_betting_alert_confidence_optimized")) ||
-        (urlString &&
-          urlString.includes("v_betting_alert_confidence_optimized"));
+        (decodedUrl && decodedUrl.includes("betting_alerts")) ||
+        (urlString && urlString.includes("betting_alerts"));
 
       if (isTargetEndpoint) {
         console.log(
@@ -508,8 +504,8 @@
         }
 
         const isTargetEndpoint =
-          decodedUrl.includes("v_betting_alert_confidence_optimized") ||
-          this._betIQUrl.includes("v_betting_alert_confidence_optimized");
+          decodedUrl.includes("betting_alerts") ||
+          this._betIQUrl.includes("betting_alerts");
 
         if (isTargetEndpoint) {
           console.log(
@@ -659,10 +655,7 @@
               args[0]
             );
             return originalClientFetch.apply(this, args).then((response) => {
-              if (
-                args[0] &&
-                args[0].includes("v_betting_alert_confidence_optimized")
-              ) {
+              if (args[0] && args[0].includes("betting_alerts")) {
                 console.log(
                   "[betIQ-Plugin] 🎯 Supabase client fetch intercepted target endpoint!"
                 );

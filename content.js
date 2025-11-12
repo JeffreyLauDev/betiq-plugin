@@ -25,14 +25,14 @@
             if (url.includes('supabase.co')) {
               console.log('[betIQ-MAIN] Fetch to Supabase:', url);
               
-              if (url.includes('v_betting_alert_confidence_optimized')) {
+              if (url.includes('betting_alerts')) {
                 console.log('[betIQ-MAIN] 🎯 Target endpoint detected!');
               }
             }
             
             // Call original fetch
             return nativeFetch.apply(this, args).then(response => {
-              if (url.includes('v_betting_alert_confidence_optimized')) {
+              if (url.includes('betting_alerts')) {
                 response.clone().json().then(data => {
                   // Send data to content script via custom event
                   window.dispatchEvent(new CustomEvent('betIQ-data', { 
@@ -145,7 +145,9 @@
     // Effect: When debug mode changes, log it
     window.betIQ.state.addEffect("debugEnabled", (state, changedKey) => {
       console.log(
-        `[betIQ-Plugin] Debug mode ${state.debugEnabled ? "enabled" : "disabled"}`
+        `[betIQ-Plugin] Debug mode ${
+          state.debugEnabled ? "enabled" : "disabled"
+        }`
       );
     });
   }
