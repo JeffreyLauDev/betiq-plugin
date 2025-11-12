@@ -17,7 +17,11 @@
         "js/storage.js",
         "js/apiInterceptor.js",
         "js/tableGenerator.js",
-        "js/columns.js",
+        "js/modules/kellyStake.js",
+        "js/modules/allocation.js",
+        "js/modules/monitor.js",
+        "js/modules/selectionOverlay.js",
+        "js/modules/columns.js",
         "js/configSection.js",
         "js/observer.js",
         "content.js"
