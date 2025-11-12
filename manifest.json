@@ -15,6 +15,10 @@
       "js": [
         "js/utils.js",
         "js/storage.js",
+        "js/interceptors/responseHandler.js",
+        "js/interceptors/fetchInterceptor.js",
+        "js/interceptors/xhrInterceptor.js",
+        "js/interceptors/supabaseClientHook.js",
         "js/apiInterceptor.js",
         "js/tableGenerator.js",
         "js/modules/kellyStake.js",
