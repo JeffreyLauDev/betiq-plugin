@@ -45,12 +45,12 @@
   /**
    * Check if a mix bet combination has been used
    * Also checks if any subset of the combination has been used
-   * (e.g., if "A,B" is used, then "A,B,C" should be blocked)
+   * Returns: { isUsed: boolean, blockedBetIds: string[] } - blockedBetIds contains ALL bet IDs that are part of any used subset
    */
   function isMixBetCombinationUsed(betIds) {
     const used = getUsedMixBetCombinations();
     if (used.length === 0) {
-      return false;
+      return { isUsed: false, blockedBetIds: [] };
     }
 
     const sortedBetIds = [...betIds].sort();
@@ -58,10 +58,13 @@
 
     // Check if exact combination is used
     if (used.includes(combinationKey)) {
-      return true;
+      return { isUsed: true, blockedBetIds: sortedBetIds };
     }
 
     // Check if any subset of this combination has been used
+    // Collect ALL bet IDs that are part of any used subset
+    const blockedBetIdsSet = new Set();
+
     // Generate all possible subsets of size 2, 3, etc. (up to current size - 1)
     for (let subsetSize = 2; subsetSize < sortedBetIds.length; subsetSize++) {
       // Generate all combinations of this size
@@ -70,12 +73,18 @@
       for (const subset of subsets) {
         const subsetKey = subset.join(",");
         if (used.includes(subsetKey)) {
-          return true; // Found a used subset
+          // Found a used subset - add all bet IDs from this subset to blocked set
+          subset.forEach((betId) => blockedBetIdsSet.add(betId));
         }
       }
     }
 
-    return false;
+    // If we found any blocked bets, the combination is blocked
+    if (blockedBetIdsSet.size > 0) {
+      return { isUsed: true, blockedBetIds: Array.from(blockedBetIdsSet) };
+    }
+
+    return { isUsed: false, blockedBetIds: [] };
   }
 
   /**
@@ -341,8 +350,10 @@
     const content = document.createElement("div");
     content.style.cssText = `
       padding: 10px;
+      display: flex;
+      flex-direction: column;
       max-height: 500px;
-      overflow-y: auto;
+      overflow: hidden;
     `;
 
     if (selectedData.length === 0) {
@@ -352,10 +363,9 @@
         </div>
       `;
     } else {
-      // Show mix bet calculations if we have 2-4 bets with valid data
+      // Show mix bet calculations if we have 2+ bets with valid data
       if (
         selectedData.length >= 2 &&
-        selectedData.length <= 4 &&
         betDataArray.length === selectedData.length
       ) {
         const mixBetEV = calculateMixBetEV(betDataArray);
@@ -363,7 +373,9 @@
           betDataArray,
           selectedBetIds
         );
-        const isCombinationUsed = isMixBetCombinationUsed(selectedBetIds);
+        const combinationCheck = isMixBetCombinationUsed(selectedBetIds);
+        const isCombinationUsed = combinationCheck.isUsed;
+        const blockedBetIds = combinationCheck.blockedBetIds;
 
         // Mix Bet Summary Section
         const mixBetSection = document.createElement("div");
@@ -373,6 +385,7 @@
           background-color: #eff6ff;
           border: 2px solid #3b82f6;
           border-radius: 6px;
+          flex-shrink: 0;
         `;
 
         const mixBetTitle = document.createElement("div");
@@ -638,47 +651,92 @@
           height: 1px;
           background-color: #e5e7eb;
           margin: 10px 0;
+          flex-shrink: 0;
         `;
         content.appendChild(divider);
       }
 
-      // Individual bet items
+      // Individual bet items container with grid layout
+      const betItemsContainer = document.createElement("div");
+      betItemsContainer.style.cssText = `
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+        overflow-y: auto;
+        flex: 1;
+        min-height: 0;
+        max-height: 100%;
+      `;
+
+      // Determine which bets are blocked (only if we have mix bet section)
+      let blockedBetIdsForDisplay = [];
+      if (
+        selectedData.length >= 2 &&
+        betDataArray.length === selectedData.length
+      ) {
+        const combinationCheck = isMixBetCombinationUsed(selectedBetIds);
+        blockedBetIdsForDisplay = combinationCheck.blockedBetIds || [];
+      }
+
       selectedData.forEach((data, index) => {
+        // Check if this bet is part of a blocked combination
+        const isBlocked = blockedBetIdsForDisplay.includes(data.betId);
+
         const item = document.createElement("div");
         item.style.cssText = `
-          padding: 8px;
-          margin-bottom: ${index < selectedData.length - 1 ? "6px" : "0"};
-          background-color: #f9fafb;
-          border: 1px solid #e5e7eb;
+          padding: 6px;
+          background-color: ${isBlocked ? "#fef2f2" : "#f9fafb"};
+          border: 1px solid ${isBlocked ? "#fecaca" : "#e5e7eb"};
           border-radius: 4px;
-          font-size: 11px;
+          font-size: 10px;
+          ${isBlocked ? "border-left: 3px solid #dc2626;" : ""}
         `;
 
         const gameDiv = document.createElement("div");
         gameDiv.style.cssText = `
           font-weight: 600;
-          color: #1f2937;
-          margin-bottom: 3px;
-          font-size: 11px;
-          line-height: 1.3;
+          color: ${isBlocked ? "#dc2626" : "#1f2937"};
+          margin-bottom: 2px;
+          font-size: 10px;
+          line-height: 1.2;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         `;
         gameDiv.textContent = data.game;
+        if (isBlocked) {
+          const blockedBadge = document.createElement("span");
+          blockedBadge.textContent = " ⚠";
+          blockedBadge.style.cssText = `
+            font-size: 9px;
+            color: #dc2626;
+            font-weight: 700;
+            margin-left: 3px;
+          `;
+          gameDiv.appendChild(blockedBadge);
+        }
 
         const playerDiv = document.createElement("div");
         playerDiv.style.cssText = `
-          color: #374151;
-          margin-bottom: 2px;
-          font-size: 10px;
+          color: ${isBlocked ? "#991b1b" : "#374151"};
+          margin-bottom: 1px;
+          font-size: 9px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         `;
-        playerDiv.textContent = `Player: ${data.player}`;
+        playerDiv.textContent = `P: ${data.player}`;
 
         const betTypeDiv = document.createElement("div");
         betTypeDiv.style.cssText = `
-          color: #374151;
+          color: ${isBlocked ? "#991b1b" : "#374151"};
           margin-bottom: 2px;
-          font-size: 10px;
+          font-size: 9px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         `;
-        betTypeDiv.textContent = `Bet Type: ${data.betType}`;
+        betTypeDiv.textContent = `Type: ${data.betType}`;
 
         // Show current stake if available
         if (data.betId && window.betIQ && window.betIQ.getStakeUsed) {
@@ -688,10 +746,10 @@
             stakeDiv.style.cssText = `
               color: #059669;
               font-weight: 500;
-              font-size: 10px;
-              margin-top: 3px;
+              font-size: 9px;
+              margin-top: 2px;
             `;
-            stakeDiv.textContent = `Current Stake: $${currentStake.toFixed(2)}`;
+            stakeDiv.textContent = `$${currentStake.toFixed(2)}`;
             item.appendChild(gameDiv);
             item.appendChild(playerDiv);
             item.appendChild(betTypeDiv);
@@ -706,8 +764,10 @@
           item.appendChild(playerDiv);
           item.appendChild(betTypeDiv);
         }
-        content.appendChild(item);
+        betItemsContainer.appendChild(item);
       });
+
+      content.appendChild(betItemsContainer);
     }
 
     selectionOverlay.innerHTML = "";
