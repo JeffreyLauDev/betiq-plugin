@@ -124,10 +124,13 @@
 
     // Effect: When bankroll or kellyFraction changes, recalculate stake amounts
     window.betIQ.state.addEffect(
-      ["bankroll", "kellyFraction"],
+      ["config.bankroll", "config.kellyFraction"],
       (state, changedKey) => {
+        const value = changedKey === "config.bankroll" 
+          ? state.config?.bankroll 
+          : state.config?.kellyFraction;
         console.log(
-          `[betIQ-Plugin] State changed: ${changedKey} = ${state[changedKey]}. Recalculating stake amounts...`
+          `[betIQ-Plugin] State changed: ${changedKey} = ${value}. Recalculating stake amounts...`
         );
 
         // Trigger recalculation of stake amounts in the table
@@ -143,10 +146,11 @@
     );
 
     // Effect: When debug mode changes, log it
-    window.betIQ.state.addEffect("debugEnabled", (state, changedKey) => {
+    window.betIQ.state.addEffect("config.debugEnabled", (state, changedKey) => {
+      const debugEnabled = state.config?.debugEnabled ?? true;
       console.log(
         `[betIQ-Plugin] Debug mode ${
-          state.debugEnabled ? "enabled" : "disabled"
+          debugEnabled ? "enabled" : "disabled"
         }`
       );
     });

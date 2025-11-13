@@ -9,9 +9,52 @@
 
   let selectionOverlay = null;
   let checkboxObserver = null;
-  const dragState = { isDragging: false, dragOffset: { x: 0, y: 0 } };
-  let lastSelectedBetIds = null; // Track selected bet IDs to avoid unnecessary re-renders
-  let manualStakeInputValue = ""; // Preserve input value across re-renders
+  
+  // Get drag state from centralized state (or create if doesn't exist)
+  function getDragState() {
+    if (!window.betIQ.state) {
+      return { isDragging: false, dragOffset: { x: 0, y: 0 } };
+    }
+    const dragState = window.betIQ.state.get("ui.selectionOverlay.dragState");
+    if (!dragState) {
+      const defaultDragState = { isDragging: false, dragOffset: { x: 0, y: 0 } };
+      window.betIQ.state.set("ui.selectionOverlay.dragState", defaultDragState, {
+        skipPersistence: true, // Don't persist drag state
+      });
+      return defaultDragState;
+    }
+    return dragState;
+  }
+  
+  // Get last selected bet IDs from centralized state
+  function getLastSelectedBetIds() {
+    if (!window.betIQ.state) return null;
+    return window.betIQ.state.get("ui.selectionOverlay.lastSelectedBetIds");
+  }
+  
+  // Set last selected bet IDs in centralized state
+  function setLastSelectedBetIds(value) {
+    if (window.betIQ.state) {
+      window.betIQ.state.set("ui.selectionOverlay.lastSelectedBetIds", value, {
+        skipPersistence: true, // Don't persist selection state
+      });
+    }
+  }
+  
+  // Get manual stake input value from centralized state
+  function getManualStakeInputValue() {
+    if (!window.betIQ.state) return "";
+    return window.betIQ.state.get("ui.selectionOverlay.manualStakeInputValue") || "";
+  }
+  
+  // Set manual stake input value in centralized state
+  function setManualStakeInputValue(value) {
+    if (window.betIQ.state) {
+      window.betIQ.state.set("ui.selectionOverlay.manualStakeInputValue", value, {
+        skipPersistence: true, // Don't persist input value
+      });
+    }
+  }
 
   /**
    * Handle unselect all button click
@@ -94,10 +137,10 @@
 
       // Clear input
       manualStakeInput.value = "";
-      manualStakeInputValue = "";
+      setManualStakeInputValue("");
 
       // Force update by clearing lastSelectedBetIds so overlay re-renders
-      lastSelectedBetIds = null;
+      setLastSelectedBetIds(null);
 
       // Update the overlay to reflect new stakes
       setTimeout(() => {
@@ -125,7 +168,7 @@
         selectionOverlay.remove();
         selectionOverlay = null;
       }
-      lastSelectedBetIds = null;
+      setLastSelectedBetIds(null);
       return;
     }
 
@@ -140,6 +183,7 @@
     currentSelectedBetIds.sort();
 
     // Check if selection actually changed
+    const lastSelectedBetIds = getLastSelectedBetIds();
     const selectionChanged =
       !lastSelectedBetIds ||
       lastSelectedBetIds.length !== currentSelectedBetIds.length ||
@@ -153,14 +197,14 @@
         'input[type="number"]'
       );
       if (existingInput) {
-        manualStakeInputValue = existingInput.value;
+        setManualStakeInputValue(existingInput.value);
       }
       // Don't re-render if selection hasn't changed
       return;
     }
 
     // Update last selected bet IDs
-    lastSelectedBetIds = currentSelectedBetIds;
+    setLastSelectedBetIds(currentSelectedBetIds);
 
     if (!selectionOverlay) {
       selectionOverlay = document.createElement("div");
@@ -239,7 +283,7 @@
             selectedData,
             betDataArray,
             selectedBetIds,
-            manualStakeInputValue,
+            getManualStakeInputValue(),
             handleStakeApply
           ) || {};
 
@@ -249,7 +293,7 @@
           // Preserve input value on change
           if (manualStakeInput) {
             manualStakeInput.addEventListener("input", (e) => {
-              manualStakeInputValue = e.target.value;
+              setManualStakeInputValue(e.target.value);
             });
           }
 
@@ -296,6 +340,7 @@
 
     // Setup drag handlers on the header text after it's been added to DOM
     if (headerText) {
+      const dragState = getDragState();
       window.betIQ.overlayRenderer?.setupHeaderDragHandlers(
         headerText,
         selectionOverlay,

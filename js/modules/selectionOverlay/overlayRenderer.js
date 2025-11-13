@@ -544,6 +544,6 @@
   window.betIQ.overlayRenderer.createOverlayHeader = createOverlayHeader;
   window.betIQ.overlayRenderer.createMixBetSection = createMixBetSection;
   window.betIQ.overlayRenderer.createBetItemsList = createBetItemsList;
-  window.betIQ.overlayRenderer.setupHeaderDragHandlers = setupHeaderDragHandlers;
+  window.betIQ.overlayRenderer.setupHeaderDragHandlers =
+    setupHeaderDragHandlers;
 })();
-

@@ -9,9 +9,13 @@
   window.betIQ.mixBetStorage = window.betIQ.mixBetStorage || {};
 
   /**
-   * Get used mix bet combinations from storage
+   * Get used mix bet combinations from centralized state
    */
   function getUsedMixBetCombinations() {
+    if (window.betIQ && window.betIQ.state) {
+      return window.betIQ.state.get("betting.mixBetCombinations") || [];
+    }
+    // Fallback to localStorage if state not available
     try {
       const stored = localStorage.getItem("betiq-used-mix-bets");
       return stored ? JSON.parse(stored) : [];
@@ -21,7 +25,7 @@
   }
 
   /**
-   * Save a mix bet combination as used
+   * Save a mix bet combination as used (uses centralized state)
    */
   function saveUsedMixBetCombination(betIds) {
     try {
@@ -29,7 +33,14 @@
       const combinationKey = betIds.sort().join(",");
       if (!used.includes(combinationKey)) {
         used.push(combinationKey);
-        localStorage.setItem("betiq-used-mix-bets", JSON.stringify(used));
+        
+        // Save to centralized state
+        if (window.betIQ && window.betIQ.state) {
+          window.betIQ.state.set("betting.mixBetCombinations", used);
+        } else {
+          // Fallback to localStorage
+          localStorage.setItem("betiq-used-mix-bets", JSON.stringify(used));
+        }
       }
     } catch (e) {
       console.error("[betIQ-Plugin] Error saving mix bet combination:", e);
@@ -103,4 +114,3 @@
   window.betIQ.mixBetStorage.saveUsedMixBetCombination = saveUsedMixBetCombination;
   window.betIQ.mixBetStorage.isMixBetCombinationUsed = isMixBetCombinationUsed;
 })();
-

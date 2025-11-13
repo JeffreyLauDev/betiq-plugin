@@ -67,7 +67,7 @@
         ? parseFloat(bankrollInput.value)
         : null;
       if (window.betIQ.state) {
-        window.betIQ.state.set("bankroll", value);
+        window.betIQ.state.set("config.bankroll", value);
       } else {
         // Fallback to localStorage if state not initialized
         if (bankrollInput.value) {
@@ -82,13 +82,13 @@
         ? parseFloat(bankrollInput.value)
         : null;
       if (window.betIQ.state) {
-        window.betIQ.state.set("bankroll", value);
+        window.betIQ.state.set("config.bankroll", value);
       }
     });
 
     // Load saved value from state
     if (window.betIQ.state) {
-      const bankroll = window.betIQ.state.get("bankroll");
+      const bankroll = window.betIQ.state.get("config.bankroll");
       if (bankroll !== null && bankroll !== undefined) {
         bankrollInput.value = bankroll;
       }
@@ -127,7 +127,7 @@
       // Update state (will trigger effects and persist to localStorage)
       const value = kellyInput.value ? parseFloat(kellyInput.value) : null;
       if (window.betIQ.state) {
-        window.betIQ.state.set("kellyFraction", value);
+        window.betIQ.state.set("config.kellyFraction", value);
       } else {
         // Fallback to localStorage if state not initialized
         if (kellyInput.value) {
@@ -140,13 +140,13 @@
       // Update state on input for real-time updates
       const value = kellyInput.value ? parseFloat(kellyInput.value) : null;
       if (window.betIQ.state) {
-        window.betIQ.state.set("kellyFraction", value);
+        window.betIQ.state.set("config.kellyFraction", value);
       }
     });
 
     // Load saved value from state
     if (window.betIQ.state) {
-      const kellyFraction = window.betIQ.state.get("kellyFraction");
+      const kellyFraction = window.betIQ.state.get("config.kellyFraction");
       if (kellyFraction !== null && kellyFraction !== undefined) {
         kellyInput.value = kellyFraction;
       }
@@ -179,7 +179,7 @@
 
     // Load saved debug state from state
     if (window.betIQ.state) {
-      const debugEnabled = window.betIQ.state.get("debugEnabled");
+      const debugEnabled = window.betIQ.state.get("config.debugEnabled");
       debugCheckbox.checked = debugEnabled !== false; // Default to true
     } else {
       // Fallback to localStorage
@@ -197,7 +197,7 @@
     debugCheckbox.addEventListener("change", (e) => {
       const enabled = e.target.checked;
       if (window.betIQ.state) {
-        window.betIQ.state.set("debugEnabled", enabled);
+        window.betIQ.state.set("config.debugEnabled", enabled);
       } else {
         // Fallback to localStorage
         localStorage.setItem("betiq-debug-enabled", enabled.toString());
@@ -219,8 +219,8 @@
         const keys = Array.isArray(changedKeys) ? changedKeys : [changedKeys];
 
         keys.forEach((key) => {
-          if (key === "bankroll") {
-            const value = state.bankroll;
+          if (key === "config.bankroll" || key === "bankroll") {
+            const value = state.config?.bankroll ?? state.bankroll;
             const currentValue = bankrollInput.value
               ? parseFloat(bankrollInput.value)
               : null;
@@ -229,8 +229,8 @@
                 value !== null && value !== undefined ? value : "";
             }
           }
-          if (key === "kellyFraction") {
-            const value = state.kellyFraction;
+          if (key === "config.kellyFraction" || key === "kellyFraction") {
+            const value = state.config?.kellyFraction ?? state.kellyFraction;
             const currentValue = kellyInput.value
               ? parseFloat(kellyInput.value)
               : null;
@@ -239,8 +239,9 @@
                 value !== null && value !== undefined ? value : "";
             }
           }
-          if (key === "debugEnabled") {
-            debugCheckbox.checked = state.debugEnabled !== false;
+          if (key === "config.debugEnabled" || key === "debugEnabled") {
+            const value = state.config?.debugEnabled ?? state.debugEnabled;
+            debugCheckbox.checked = value !== false;
           }
         });
       });

@@ -97,11 +97,11 @@
 
     const bankroll =
       window.betIQ && window.betIQ.state
-        ? window.betIQ.state.get("bankroll")
+        ? window.betIQ.state.get("config.bankroll")
         : null;
     const kellyFraction =
       window.betIQ && window.betIQ.state
-        ? window.betIQ.state.get("kellyFraction")
+        ? window.betIQ.state.get("config.kellyFraction")
         : null;
 
     // Calculate stake allowed

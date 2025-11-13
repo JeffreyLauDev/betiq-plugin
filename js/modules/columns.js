@@ -7,9 +7,32 @@
   // Create global namespace if it doesn't exist
   window.betIQ = window.betIQ || {};
 
-  // Track table state to avoid unnecessary re-processing
-  let lastTableHash = "";
-  let columnProcessing = false;
+  // Helper functions to get/set table state from centralized state
+  function getLastTableHash() {
+    if (!window.betIQ.state) return "";
+    return window.betIQ.state.get("ui.columns.lastTableHash") || "";
+  }
+  
+  function setLastTableHash(value) {
+    if (window.betIQ.state) {
+      window.betIQ.state.set("ui.columns.lastTableHash", value, {
+        skipPersistence: true, // Don't persist table hash
+      });
+    }
+  }
+  
+  function getColumnProcessing() {
+    if (!window.betIQ.state) return false;
+    return window.betIQ.state.get("ui.columns.columnProcessing") || false;
+  }
+  
+  function setColumnProcessing(value) {
+    if (window.betIQ.state) {
+      window.betIQ.state.set("ui.columns.columnProcessing", value, {
+        skipPersistence: true, // Don't persist processing flag
+      });
+    }
+  }
 
   /**
    * Recalculate all Stake Allowed values in the table
@@ -51,7 +74,7 @@
    * Add full column to table - handles React/Next.js frequent re-renders
    */
   window.betIQ.addKellyStakeColumn = function () {
-    if (columnProcessing) {
+    if (getColumnProcessing()) {
       return;
     }
 
@@ -128,7 +151,7 @@
 
     // If structure unchanged and all cells exist, skip
     if (
-      currentHash === lastTableHash &&
+      currentHash === getLastTableHash() &&
       hasKellyHeader &&
       hasAllocationHeader &&
       hasMonitorHeader &&
@@ -138,8 +161,8 @@
       return;
     }
 
-    lastTableHash = currentHash;
-    columnProcessing = true;
+    setLastTableHash(currentHash);
+    setColumnProcessing(true);
 
     // Add header cells if thead exists
     if (headerRow && headerRow.querySelectorAll("th").length > 0) {
@@ -435,7 +458,7 @@
       }
     });
 
-    columnProcessing = false;
+    setColumnProcessing(false);
 
     // Initialize selection overlay after columns are added
     if (window.betIQ.initSelectionOverlay) {
