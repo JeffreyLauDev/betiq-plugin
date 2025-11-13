@@ -343,9 +343,90 @@
       color: #1f2937;
       cursor: move;
       user-select: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     `;
-    header.textContent = `Selected Bets (${selectedData.length})`;
-    header.title = "Drag to move";
+
+    const headerText = document.createElement("span");
+    headerText.textContent = `Selected Bets (${selectedData.length})`;
+    headerText.title = "Drag to move";
+    header.appendChild(headerText);
+
+    // Add "Unselect All" button
+    if (selectedData.length > 0) {
+      const unselectAllBtn = document.createElement("button");
+      unselectAllBtn.textContent = "Unselect All";
+      unselectAllBtn.style.cssText = `
+        padding: 4px 8px;
+        border: 1px solid #d1d5db;
+        background-color: white;
+        color: #374151;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background-color 0.2s;
+        margin-left: 8px;
+        flex-shrink: 0;
+      `;
+      unselectAllBtn.addEventListener("mouseenter", () => {
+        unselectAllBtn.style.backgroundColor = "#f9fafb";
+      });
+      unselectAllBtn.addEventListener("mouseleave", () => {
+        unselectAllBtn.style.backgroundColor = "white";
+      });
+      unselectAllBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+
+        // Find all selected checkboxes and click them to unselect
+        // Use a small delay between clicks to ensure React processes each one
+        const table = document.querySelector("table");
+        if (table) {
+          const allRows = table.querySelectorAll("tbody tr, table > tr");
+          const selectedCheckboxes = [];
+
+          allRows.forEach((row) => {
+            if (row.querySelectorAll("th").length > 0) return;
+
+            const checkbox = row.querySelector('button[role="checkbox"]');
+            if (
+              checkbox &&
+              (checkbox.getAttribute("data-state") === "checked" ||
+                checkbox.getAttribute("aria-checked") === "true")
+            ) {
+              selectedCheckboxes.push(checkbox);
+            }
+          });
+
+          // Click each checkbox with a delay to ensure React processes each click
+          // Use requestAnimationFrame to ensure DOM updates are processed
+          selectedCheckboxes.forEach((checkbox, index) => {
+            setTimeout(() => {
+              // Re-query the checkbox in case React re-rendered the DOM
+              const row = checkbox.closest("tr");
+              if (row) {
+                const currentCheckbox = row.querySelector(
+                  'button[role="checkbox"]'
+                );
+                if (
+                  currentCheckbox &&
+                  (currentCheckbox.getAttribute("data-state") === "checked" ||
+                    currentCheckbox.getAttribute("aria-checked") === "true")
+                ) {
+                  currentCheckbox.click();
+                }
+              } else {
+                // Fallback to original checkbox if row not found
+                checkbox.click();
+              }
+            }, index * 100); // 100ms delay between each click
+          });
+        }
+      });
+      header.appendChild(unselectAllBtn);
+    }
 
     const content = document.createElement("div");
     content.style.cssText = `
@@ -774,8 +855,8 @@
     selectionOverlay.appendChild(header);
     selectionOverlay.appendChild(content);
 
-    // Setup drag handlers on the header after it's been added to DOM
-    setupHeaderDragHandlers(header);
+    // Setup drag handlers on the header text (not the button) after it's been added to DOM
+    setupHeaderDragHandlers(headerText);
   }
 
   /**
