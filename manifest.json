@@ -4,16 +4,19 @@
   "version": "1.0.0",
   "description": "Extract table column data from betIQ tables",
   "permissions": [
-    "activeTab"
+    "activeTab",
+    "storage"
   ],
   "host_permissions": [
-    "https://betiq.vercel.app/*"
+    "https://betiq.vercel.app/*",
+    "https://*.supabase.co/*"
   ],
   "content_scripts": [
     {
       "matches": ["https://betiq.vercel.app/*"],
       "js": [
         "js/utils.js",
+        "js/config/supabaseConfig.js",
         "js/storage.js",
         "js/interceptors/responseHandler.js",
         "js/interceptors/fetchInterceptor.js",
@@ -34,6 +37,9 @@
         "js/modules/selectionOverlay/index.js",
         "js/modules/columns.js",
         "js/configSection.js",
+        "js/ui/snackbar.js",
+        "js/auth/supabaseAuth.js",
+        "js/sync/supabaseSync.js",
         "js/observer.js",
         "content.js"
       ],

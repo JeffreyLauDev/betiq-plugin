@@ -2,28 +2,283 @@
 <html>
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>betIQ Plugin</title>
   <style>
-    body {
-      width: 300px;
-      padding: 20px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    }
-    h1 {
-      margin: 0 0 15px 0;
-      font-size: 18px;
-      color: #1f2937;
-    }
-    p {
+    * {
+      box-sizing: border-box;
       margin: 0;
+      padding: 0;
+    }
+
+    body {
+      width: 350px;
+      min-height: 400px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: #f9fafb;
+    }
+
+    .container {
+      padding: 20px;
+    }
+
+    h1 {
+      font-size: 20px;
+      font-weight: 600;
+      color: #1f2937;
+      margin-bottom: 20px;
+    }
+
+    .login-section, .logged-in-section {
+      display: none;
+    }
+
+    .login-section.active, .logged-in-section.active {
+      display: block;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
       font-size: 14px;
-      color: #6b7280;
-      line-height: 1.5;
+      font-weight: 500;
+      color: #374151;
+      margin-bottom: 6px;
+    }
+
+    input {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 14px;
+      transition: border-color 0.2s;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+
+    button {
+      width: 100%;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    .btn-primary {
+      background-color: #3b82f6;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background-color: #2563eb;
+    }
+
+    .btn-primary:disabled {
+      background-color: #9ca3af;
+      cursor: not-allowed;
+    }
+
+    .btn-secondary {
+      background-color: #6b7280;
+      color: white;
+      margin-top: 8px;
+    }
+
+    .btn-secondary:hover {
+      background-color: #4b5563;
+    }
+
+    .error-message {
+      background-color: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #991b1b;
+      padding: 10px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      margin-bottom: 16px;
+      display: none;
+    }
+
+    .error-message.show {
+      display: block;
+    }
+
+    .success-message {
+      background-color: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      color: #166534;
+      padding: 10px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      margin-bottom: 16px;
+      display: none;
+    }
+
+    .success-message.show {
+      display: block;
+    }
+
+    .welcome-message {
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+      color: white;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+
+    .welcome-icon {
+      font-size: 32px;
+      margin-bottom: 8px;
+    }
+
+    .welcome-message h2 {
+      font-size: 18px;
+      font-weight: 600;
+      color: white;
+      margin-bottom: 6px;
+    }
+
+    .welcome-text {
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.9);
+      margin: 0 0 12px 0;
+    }
+
+    .welcome-message .sync-status {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .sync-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: #10b981;
+      animation: pulse 2s infinite;
+    }
+
+    .sync-indicator.disconnected {
+      background-color: #ef4444;
+      animation: none;
+    }
+
+    @keyframes pulse {
+      0%, 100% {
+        opacity: 1;
+      }
+      50% {
+        opacity: 0.5;
+      }
+    }
+
+    .sync-status-text {
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    .welcome-message .sync-indicator {
+      background-color: rgba(255, 255, 255, 0.9);
+    }
+
+    .loading {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid #e5e7eb;
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
     }
   </style>
 </head>
 <body>
-  <h1>betIQ Table Extractor</h1>
-  <p>Click "Extract Column" button next to column 13 in the table to extract data.</p>
+  <div class="container">
+    <h1>betIQ Plugin</h1>
+
+    <!-- Login Section -->
+    <div id="loginSection" class="login-section">
+      <div id="errorMessage" class="error-message"></div>
+      <div id="successMessage" class="success-message"></div>
+
+      <form id="loginForm">
+        <div class="form-group">
+          <label for="email">Email / Username</label>
+          <input
+            type="text"
+            id="email"
+            name="email"
+            placeholder="Enter your email or username"
+            required
+            autocomplete="username"
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input
+            type="password"
+            id="password"
+            name="password"
+            placeholder="Enter your password"
+            required
+            autocomplete="current-password"
+          />
+        </div>
+
+        <button type="submit" class="btn-primary" id="loginBtn">
+          Login
+        </button>
+      </form>
+    </div>
+
+    <!-- Logged In Section -->
+    <div id="loggedInSection" class="logged-in-section">
+      <div class="welcome-message">
+        <div class="welcome-icon">🎯</div>
+        <h2>Ready to Bet!</h2>
+        <p class="welcome-text">You're all set. Your betting data will sync automatically.</p>
+        <div class="sync-status">
+          <div id="syncIndicator" class="sync-indicator"></div>
+          <span class="sync-status-text" id="syncStatusText">Synced</span>
+        </div>
+      </div>
+
+      <button id="logoutBtn" class="btn-secondary">Logout</button>
+    </div>
+  </div>
+
+  <!-- Include Supabase client library (bundled) -->
+  <script src="js/lib/supabase.js"></script>
+  
+  <!-- Include extension scripts -->
+  <script src="js/config/supabaseConfig.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/auth/supabaseAuth.js"></script>
+  <script src="js/ui/snackbar.js"></script>
+  <script src="js/sync/supabaseSync.js"></script>
+  <script src="popup.js"></script>
 </body>
 </html>
-

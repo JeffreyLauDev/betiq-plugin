@@ -4,6 +4,31 @@
 (function () {
   "use strict";
 
+  // Load Supabase from CDN for content scripts (runs in MAIN world)
+  const loadSupabase = () => {
+    return new Promise((resolve, reject) => {
+      // Check if Supabase is already loaded
+      if (window.supabase && window.supabase.createClient) {
+        resolve();
+        return;
+      }
+
+      // Inject Supabase CDN script
+      const script = document.createElement("script");
+      script.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+      script.async = true;
+      script.onload = () => {
+        console.log("[betIQ-Plugin] Supabase loaded from CDN");
+        resolve();
+      };
+      script.onerror = () => {
+        console.error("[betIQ-Plugin] Failed to load Supabase from CDN");
+        reject(new Error("Failed to load Supabase"));
+      };
+      (document.head || document.documentElement).appendChild(script);
+    });
+  };
+
   // For Manifest V3, inject a script into the page context (MAIN world) if we're in ISOLATED world
   // This ensures we intercept fetch in the same context as Next.js
   const injectScript = () => {
@@ -53,11 +78,28 @@
     script.remove();
   };
 
-  // Inject immediately
+  // Load Supabase first, then inject other scripts
+  const initContentScripts = async () => {
+    try {
+      // Load Supabase if not already loaded
+      await loadSupabase();
+      
+      // Inject fetch interception script
+      if (document.documentElement) {
+        injectScript();
+      } else {
+        document.addEventListener("DOMContentLoaded", injectScript);
+      }
+    } catch (error) {
+      console.error("[betIQ-Plugin] Error initializing content scripts:", error);
+    }
+  };
+
+  // Initialize immediately
   if (document.documentElement) {
-    injectScript();
+    initContentScripts();
   } else {
-    document.addEventListener("DOMContentLoaded", injectScript);
+    document.addEventListener("DOMContentLoaded", initContentScripts);
   }
 
   // Listen for data from MAIN world
@@ -88,6 +130,14 @@
 
       // Set up chain effects for state changes
       setupStateEffects();
+    }
+
+    // Initialize auth (will restore session if exists)
+    if (window.betIQ && window.betIQ.auth && window.betIQ.auth.init) {
+      window.betIQ.auth.init().then(() => {
+        // Sync will be initialized automatically if user is logged in
+        console.log("[betIQ-Plugin] Auth initialized");
+      });
     }
 
     // Initialize debounced table generation

@@ -82,6 +82,10 @@
           columnProcessing: false,
         },
       },
+      auth: {
+        user: null, // Current logged-in user
+        session: null, // Current session
+      },
     },
 
     // Subscribers (listeners for state changes)
