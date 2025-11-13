@@ -9,6 +9,7 @@
 
   let selectionOverlay = null;
   let checkboxObserver = null;
+  let escapeKeyHandler = null; // Esc key handler for unselect all
   
   // Get drag state from centralized state (or create if doesn't exist)
   function getDragState() {
@@ -168,6 +169,11 @@
         selectionOverlay.remove();
         selectionOverlay = null;
       }
+      // Remove Esc key listener when overlay is hidden
+      if (escapeKeyHandler) {
+        document.removeEventListener("keydown", escapeKeyHandler);
+        escapeKeyHandler = null;
+      }
       setLastSelectedBetIds(null);
       return;
     }
@@ -225,6 +231,19 @@
         user-select: none;
       `;
       document.body.appendChild(selectionOverlay);
+
+      // Setup Esc key listener to trigger unselect all
+      if (!escapeKeyHandler) {
+        escapeKeyHandler = (e) => {
+          // Only trigger if overlay is visible and Esc is pressed
+          if (e.key === "Escape" && selectionOverlay && document.body.contains(selectionOverlay)) {
+            e.preventDefault();
+            e.stopPropagation();
+            handleUnselectAll();
+          }
+        };
+        document.addEventListener("keydown", escapeKeyHandler);
+      }
     }
 
     const selectedData = [];
