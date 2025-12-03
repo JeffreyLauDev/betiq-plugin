@@ -10,48 +10,47 @@
 
   /**
    * Calculate mix bet EV
-   * Formula: ((boosted odds1 × boosted odds2 × ...) - (real odds1 × real odds2 × ...)) / (real odds1 × real odds2 × ...) × 100
+   * Formula: Sum of individual bet EV percentages
    */
   function calculateMixBetEV(betDataArray) {
     if (!betDataArray || betDataArray.length < 2) {
       return null;
     }
 
-    let boostedProduct = 1;
-    let realProduct = 1;
+    let totalEV = 0;
     let allValid = true;
 
     for (const betData of betDataArray) {
-      const boostedOdds = betData.odds;
-      const realOdds = betData.true_odds;
+      const evPercentage = betData.ev_percentage;
 
-      if (!boostedOdds || !realOdds || boostedOdds <= 1 || realOdds <= 1) {
+      if (evPercentage === null || evPercentage === undefined) {
         allValid = false;
         break;
       }
 
-      boostedProduct *= boostedOdds;
-      realProduct *= realOdds;
+      totalEV += evPercentage;
     }
 
     if (!allValid) {
       return null;
     }
 
-    const ev = ((boostedProduct - realProduct) / realProduct) * 100;
-    return ev;
+    return totalEV;
   }
 
   /**
-   * Calculate minimum stake allowed across all bets
-   * Accounts for existing manual allocations: min(stake allowed - manual allocations)
+   * Calculate minimum stake allowed for mix bet
+   * Formula: (CombinedEV% / 100) / (CombinedOdds - 1) × Bankroll × Kelly Fraction
+   * CombinedEV = sum of individual bet EV percentages
+   * CombinedOdds = product of all odds
+   * Then capped at the minimum stake allowed of individual bets
    */
   function calculateMinStakeAllowed(betDataArray, selectedBetIds) {
     if (!betDataArray || betDataArray.length === 0) {
       return null;
     }
 
-      const bankroll =
+    const bankroll =
       window.betIQ && window.betIQ.state
         ? window.betIQ.state.get("config.bankroll")
         : null;
@@ -64,7 +63,46 @@
       return null;
     }
 
-    let minAvailableStake = null;
+    // Calculate combined EV (sum of individual EV percentages)
+    let combinedEV = 0;
+    let combinedOdds = 1;
+    let allValid = true;
+
+    for (const betData of betDataArray) {
+      const evPercentage = betData.ev_percentage;
+      const odds = betData.odds;
+
+      if (
+        evPercentage === null ||
+        evPercentage === undefined ||
+        odds === null ||
+        odds === undefined ||
+        odds <= 1
+      ) {
+        allValid = false;
+        break;
+      }
+
+      combinedEV += evPercentage;
+      combinedOdds *= odds;
+    }
+
+    if (!allValid) {
+      return null;
+    }
+
+    // Calculate mix bet stake allowed using the same formula as individual bets
+    // Formula: (EV% / 100) / (Odds - 1) × Bankroll × Kelly Fraction
+    const mixBetStakeAllowed =
+      (combinedEV / 100 / (combinedOdds - 1)) * bankroll * kellyFraction;
+
+    if (mixBetStakeAllowed < 0) {
+      return null;
+    }
+
+    // Calculate minimum stake allowed from individual bets
+    // Accounts for existing manual allocations: min(stake allowed - manual allocations)
+    let minIndividualStakeAllowed = null;
 
     for (let i = 0; i < betDataArray.length; i++) {
       const betData = betDataArray[i];
@@ -86,17 +124,25 @@
         // Calculate available stake (stake allowed - manual allocations)
         const availableStake = Math.max(0, stakeAllowed - existingStake);
 
-        if (minAvailableStake === null || availableStake < minAvailableStake) {
-          minAvailableStake = availableStake;
+        if (
+          minIndividualStakeAllowed === null ||
+          availableStake < minIndividualStakeAllowed
+        ) {
+          minIndividualStakeAllowed = availableStake;
         }
       }
     }
 
-    return minAvailableStake;
+    // Return the minimum of mix bet stake allowed and minimum individual stake allowed
+    if (minIndividualStakeAllowed === null) {
+      return mixBetStakeAllowed;
+    }
+
+    return Math.min(mixBetStakeAllowed, minIndividualStakeAllowed);
   }
 
   // Expose functions
   window.betIQ.mixBetCalculations.calculateMixBetEV = calculateMixBetEV;
-  window.betIQ.mixBetCalculations.calculateMinStakeAllowed = calculateMinStakeAllowed;
+  window.betIQ.mixBetCalculations.calculateMinStakeAllowed =
+    calculateMinStakeAllowed;
 })();
-

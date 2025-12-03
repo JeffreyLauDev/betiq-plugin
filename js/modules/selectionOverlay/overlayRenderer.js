@@ -373,12 +373,21 @@
 
   /**
    * Create bet items list
+   * @param {Array} selectedData - Array of bet data objects
+   * @param {Array} blockedBetIds - Array of bet IDs that are blocked (already used)
+   * @param {Array} duplicateBetIds - Array of bet IDs that have duplicate games
+   * @param {Function} onUnselectBet - Optional function to call when clicking a duplicate bet
    */
-  function createBetItemsList(selectedData, blockedBetIds) {
+  function createBetItemsList(
+    selectedData,
+    blockedBetIds,
+    duplicateBetIds = [],
+    onUnselectBet = null
+  ) {
     const betItemsContainer = document.createElement("div");
     betItemsContainer.style.cssText = `
-      display: grid;
-      grid-template-columns: 1fr 1fr;
+      display: flex;
+      flex-direction: column;
       gap: 6px;
       overflow-y: auto;
       flex: 1;
@@ -389,87 +398,270 @@
     selectedData.forEach((data) => {
       // Check if this bet is part of a blocked combination
       const isBlocked = blockedBetIds.includes(data.betId);
+      // Check if this bet has a duplicate game
+      const isDuplicate = duplicateBetIds.includes(data.betId);
 
       const item = document.createElement("div");
       item.style.cssText = `
-        padding: 6px;
-        background-color: ${isBlocked ? "#fef2f2" : "#f9fafb"};
-        border: 1px solid ${isBlocked ? "#fecaca" : "#e5e7eb"};
+        padding: 8px 30px 8px 8px;
+        background-color: ${isBlocked || isDuplicate ? "#fef2f2" : "#f9fafb"};
+        border: 1px solid ${isBlocked || isDuplicate ? "#fecaca" : "#e5e7eb"};
         border-radius: 4px;
         font-size: 10px;
-        ${isBlocked ? "border-left: 3px solid #dc2626;" : ""}
+        ${isBlocked || isDuplicate ? "border-left: 3px solid #dc2626;" : ""}
+        position: relative;
+        transition: background-color 0.2s;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        width: 100%;
+        box-sizing: border-box;
       `;
 
-      const gameDiv = document.createElement("div");
-      gameDiv.style.cssText = `
-        font-weight: 600;
-        color: ${isBlocked ? "#dc2626" : "#1f2937"};
-        margin-bottom: 2px;
-        font-size: 10px;
-        line-height: 1.2;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      `;
-      gameDiv.textContent = data.game;
-      if (isBlocked) {
-        const blockedBadge = document.createElement("span");
-        blockedBadge.textContent = " ⚠";
-        blockedBadge.style.cssText = `
-          font-size: 9px;
-          color: #dc2626;
+      // Add X button in right side, vertically centered
+      if (onUnselectBet && data.betId) {
+        const removeButton = document.createElement("div");
+        removeButton.textContent = "×";
+        removeButton.style.cssText = `
+          position: absolute;
+          top: 50%;
+          right: 8px;
+          transform: translateY(-50%);
+          font-size: 18px;
           font-weight: 700;
-          margin-left: 3px;
+          color: ${isBlocked || isDuplicate ? "#dc2626" : "#9ca3af"};
+          cursor: pointer;
+          line-height: 1;
+          width: 20px;
+          height: 20px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: color 0.2s;
         `;
-        gameDiv.appendChild(blockedBadge);
+        removeButton.addEventListener("click", (e) => {
+          e.stopPropagation();
+          onUnselectBet(data.betId);
+        });
+        removeButton.addEventListener("mouseenter", () => {
+          removeButton.style.color = "#dc2626";
+        });
+        removeButton.addEventListener("mouseleave", () => {
+          removeButton.style.color =
+            isBlocked || isDuplicate ? "#dc2626" : "#9ca3af";
+        });
+        item.appendChild(removeButton);
       }
 
-      const playerDiv = document.createElement("div");
-      playerDiv.style.cssText = `
-        color: ${isBlocked ? "#991b1b" : "#374151"};
-        margin-bottom: 1px;
-        font-size: 9px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      `;
-      playerDiv.textContent = `P: ${data.player}`;
+      // Add warning badge for blocked bets
+      if (isBlocked && !isDuplicate) {
+        const warningBadge = document.createElement("div");
+        warningBadge.textContent = "⚠";
+        warningBadge.style.cssText = `
+          position: absolute;
+          top: 50%;
+          left: 8px;
+          transform: translateY(-50%);
+          font-size: 12px;
+          color: #dc2626;
+        `;
+        item.appendChild(warningBadge);
+        // Adjust padding to make room for warning badge
+        item.style.paddingLeft = "24px";
+      }
 
-      const betTypeDiv = document.createElement("div");
-      betTypeDiv.style.cssText = `
-        color: ${isBlocked ? "#991b1b" : "#374151"};
-        margin-bottom: 2px;
-        font-size: 9px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      `;
-      betTypeDiv.textContent = `Type: ${data.betType}`;
+      // Get betting data and calculate stake available
+      let betData = null;
+      let odds = null;
+      let evPercentage = null;
+      let stakeAvailable = null;
 
-      item.appendChild(gameDiv);
-      item.appendChild(playerDiv);
-      item.appendChild(betTypeDiv);
+      if (data.betId && window.betIQ && window.betIQ.getBettingDataById) {
+        betData = window.betIQ.getBettingDataById(data.betId);
+        if (betData) {
+          // ONLY use true_odds, no fallback
+          odds = betData.true_odds;
+          evPercentage = betData.ev_percentage;
 
-      // Show current stake if available
-      if (data.betId && window.betIQ && window.betIQ.getStakeUsed) {
-        const currentStake = window.betIQ.getStakeUsed(data.betId);
-        if (currentStake > 0) {
-          const stakeDiv = document.createElement("div");
-          stakeDiv.style.cssText = `
-            color: #059669;
-            font-weight: 500;
-            font-size: 9px;
-            margin-top: 2px;
-          `;
-          stakeDiv.textContent = `$${currentStake.toFixed(2)}`;
-          item.appendChild(stakeDiv);
+          // Calculate stake allowed
+          const bankroll =
+            window.betIQ && window.betIQ.state
+              ? window.betIQ.state.get("config.bankroll")
+              : null;
+          const kellyFraction =
+            window.betIQ && window.betIQ.state
+              ? window.betIQ.state.get("config.kellyFraction")
+              : null;
+
+          if (bankroll && kellyFraction && window.betIQ.calculateStakeAllowed) {
+            const stakeAllowed = window.betIQ.calculateStakeAllowed(
+              betData,
+              bankroll,
+              kellyFraction
+            );
+
+            // Get stake used
+            const stakeUsed =
+              data.betId && window.betIQ && window.betIQ.getStakeUsed
+                ? window.betIQ.getStakeUsed(data.betId) || 0
+                : 0;
+
+            // Calculate stake available (allowed - used)
+            if (stakeAllowed !== null && stakeAllowed > 0) {
+              stakeAvailable = Math.max(0, stakeAllowed - stakeUsed);
+            }
+          }
         }
       }
+
+      // Create a container for horizontal info display
+      const infoContainer = document.createElement("div");
+      infoContainer.style.cssText = `
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        flex: 1;
+        flex-wrap: wrap;
+      `;
+
+      // Show game name
+      if (data.game) {
+        const gameDiv = document.createElement("div");
+        gameDiv.style.cssText = `
+          color: ${isBlocked || isDuplicate ? "#dc2626" : "#1f2937"};
+          font-size: 10px;
+          font-weight: 600;
+          min-width: 120px;
+          max-width: 200px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        `;
+        gameDiv.textContent = data.game;
+        infoContainer.appendChild(gameDiv);
+      }
+
+      // Show odds
+      if (odds !== null && odds !== undefined) {
+        const oddsDiv = document.createElement("div");
+        oddsDiv.style.cssText = `
+          color: ${isBlocked || isDuplicate ? "#991b1b" : "#374151"};
+          font-size: 10px;
+          font-weight: 500;
+          white-space: nowrap;
+        `;
+        oddsDiv.textContent = `Odds: ${odds.toFixed(2)}`;
+        infoContainer.appendChild(oddsDiv);
+      }
+
+      // Show EV
+      if (evPercentage !== null && evPercentage !== undefined) {
+        const evDiv = document.createElement("div");
+        const evColor =
+          evPercentage > 0
+            ? "#059669"
+            : evPercentage < 0
+            ? "#dc2626"
+            : "#6b7280";
+        evDiv.style.cssText = `
+          color: ${evColor};
+          font-size: 10px;
+          font-weight: 500;
+          white-space: nowrap;
+        `;
+        evDiv.textContent = `EV: ${
+          evPercentage >= 0 ? "+" : ""
+        }${evPercentage.toFixed(2)}%`;
+        infoContainer.appendChild(evDiv);
+      }
+
+      // Show stake available
+      if (stakeAvailable !== null && stakeAvailable >= 0) {
+        const stakeAvailableDiv = document.createElement("div");
+        stakeAvailableDiv.style.cssText = `
+          color: #1f2937;
+          font-size: 10px;
+          font-weight: 600;
+          white-space: nowrap;
+        `;
+        stakeAvailableDiv.textContent = `Stake Available: $${stakeAvailable.toFixed(
+          2
+        )}`;
+        infoContainer.appendChild(stakeAvailableDiv);
+      }
+
+      item.appendChild(infoContainer);
 
       betItemsContainer.appendChild(item);
     });
 
     return betItemsContainer;
+  }
+
+  /**
+   * Save overlay position to localStorage
+   */
+  function saveOverlayPosition(selectionOverlay) {
+    if (!selectionOverlay) return;
+
+    try {
+      const position = {
+        left: selectionOverlay.style.left || "",
+        top: selectionOverlay.style.top || "",
+        right: selectionOverlay.style.right || "",
+      };
+      localStorage.setItem(
+        "betIQ.selectionOverlay.position",
+        JSON.stringify(position)
+      );
+    } catch (e) {
+      // Ignore localStorage errors (e.g., in private browsing)
+      console.warn("[betIQ-Plugin] Could not save overlay position:", e);
+    }
+  }
+
+  /**
+   * Restore overlay position from localStorage
+   */
+  function restoreOverlayPosition(selectionOverlay) {
+    if (!selectionOverlay) return false;
+
+    try {
+      const saved = localStorage.getItem("betIQ.selectionOverlay.position");
+      if (!saved) return false;
+
+      const position = JSON.parse(saved);
+      if (position && (position.left || position.top || position.right)) {
+        // Apply saved position
+        if (position.left) {
+          const leftValue = parseFloat(position.left);
+          if (!isNaN(leftValue)) {
+            // Validate position is within viewport
+            const maxLeft = window.innerWidth - selectionOverlay.offsetWidth;
+            const validatedLeft = Math.max(0, Math.min(leftValue, maxLeft));
+            selectionOverlay.style.left = validatedLeft + "px";
+            selectionOverlay.style.right = "auto";
+          }
+        }
+        if (position.top) {
+          const topValue = parseFloat(position.top);
+          if (!isNaN(topValue)) {
+            // Validate position is within viewport
+            const maxTop = window.innerHeight - selectionOverlay.offsetHeight;
+            const validatedTop = Math.max(0, Math.min(topValue, maxTop));
+            selectionOverlay.style.top = validatedTop + "px";
+          }
+        }
+        if (position.right && !position.left) {
+          selectionOverlay.style.right = position.right;
+        }
+        return true;
+      }
+    } catch (e) {
+      // Ignore localStorage errors
+      console.warn("[betIQ-Plugin] Could not restore overlay position:", e);
+    }
+    return false;
   }
 
   /**
@@ -528,6 +720,8 @@
             if (headerEl) {
               headerEl.style.cursor = "move";
             }
+            // Save position to localStorage when drag ends
+            saveOverlayPosition(selectionOverlay);
           }
         }
       };
@@ -546,4 +740,6 @@
   window.betIQ.overlayRenderer.createBetItemsList = createBetItemsList;
   window.betIQ.overlayRenderer.setupHeaderDragHandlers =
     setupHeaderDragHandlers;
+  window.betIQ.overlayRenderer.saveOverlayPosition = saveOverlayPosition;
+  window.betIQ.overlayRenderer.restoreOverlayPosition = restoreOverlayPosition;
 })();

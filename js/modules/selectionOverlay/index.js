@@ -58,6 +58,34 @@
   }
 
   /**
+   * Handle unselect a specific bet by betId
+   */
+  function handleUnselectBet(betId) {
+    if (!betId) return;
+    
+    const table = document.querySelector("table");
+    if (!table) return;
+
+    const allRows = table.querySelectorAll("tbody tr, table > tr");
+    for (const row of allRows) {
+      if (row.querySelectorAll("th").length > 0) continue;
+      
+      const rowBetId = row.getAttribute("data-id");
+      if (rowBetId === betId) {
+        const checkbox = row.querySelector('button[role="checkbox"]');
+        if (
+          checkbox &&
+          (checkbox.getAttribute("data-state") === "checked" ||
+            checkbox.getAttribute("aria-checked") === "true")
+        ) {
+          checkbox.click();
+          break;
+        }
+      }
+    }
+  }
+
+  /**
    * Handle unselect all button click
    */
   function handleUnselectAll() {
@@ -215,11 +243,13 @@
     if (!selectionOverlay) {
       selectionOverlay = document.createElement("div");
       selectionOverlay.id = "betiq-selection-overlay";
+      
+      // Set default styles first
       selectionOverlay.style.cssText = `
         position: fixed;
         top: 20px;
         right: 20px;
-        width: 420px;
+        width: 600px;
         max-height: 600px;
         background-color: #ffffff;
         border: 1px solid #e5e7eb;
@@ -231,6 +261,12 @@
         user-select: none;
       `;
       document.body.appendChild(selectionOverlay);
+      
+      // Try to restore saved position after appending to DOM
+      // Use requestAnimationFrame to ensure overlay is rendered before restoring position
+      requestAnimationFrame(() => {
+        window.betIQ.overlayRenderer?.restoreOverlayPosition(selectionOverlay);
+      });
 
       // Setup Esc key listener to trigger unselect all
       if (!escapeKeyHandler) {
@@ -292,10 +328,33 @@
         </div>
       `;
     } else {
-      // Show mix bet calculations if we have 2+ bets with valid data
+      // Check for duplicate games - same game shouldn't be available for multi bet
+      const gameMap = new Map(); // Map game -> array of betIds with that game
+      const duplicateBetIds = new Set(); // Set of betIds that are duplicates
+      
+      selectedData.forEach((data) => {
+        if (!data.game || !data.betId) return;
+        
+        if (!gameMap.has(data.game)) {
+          gameMap.set(data.game, []);
+        }
+        gameMap.get(data.game).push(data.betId);
+      });
+      
+      // Mark all bets with duplicate games
+      gameMap.forEach((betIds) => {
+        if (betIds.length > 1) {
+          betIds.forEach((betId) => duplicateBetIds.add(betId));
+        }
+      });
+      
+      const hasDuplicateGames = duplicateBetIds.size > 0;
+
+      // Show mix bet calculations if we have 2+ bets with valid data and no duplicate games
       if (
         selectedData.length >= 2 &&
-        betDataArray.length === selectedData.length
+        betDataArray.length === selectedData.length &&
+        !hasDuplicateGames
       ) {
         const { mixBetSection, manualStakeInput } =
           window.betIQ.overlayRenderer?.createMixBetSection(
@@ -336,15 +395,58 @@
         const betItemsContainer =
           window.betIQ.overlayRenderer?.createBetItemsList(
             selectedData,
-            blockedBetIds
+            blockedBetIds,
+            [], // No duplicate games in this case
+            handleUnselectBet // Make all bets clickable to remove
           );
         if (betItemsContainer) {
           content.appendChild(betItemsContainer);
         }
       } else {
+        // Show warning if duplicate games detected
+        if (hasDuplicateGames && selectedData.length >= 2) {
+          const warningSection = document.createElement("div");
+          warningSection.style.cssText = `
+            padding: 10px;
+            margin-bottom: 10px;
+            background-color: #fef2f2;
+            border: 2px solid #dc2626;
+            border-radius: 6px;
+            flex-shrink: 0;
+          `;
+          
+          const warningTitle = document.createElement("div");
+          warningTitle.style.cssText = `
+            font-weight: 700;
+            font-size: 12px;
+            color: #991b1b;
+            margin-bottom: 6px;
+          `;
+          warningTitle.textContent = "⚠️ Mix Bet Not Available";
+          warningSection.appendChild(warningTitle);
+          
+          const warningMessage = document.createElement("div");
+          warningMessage.style.cssText = `
+            font-size: 11px;
+            color: #991b1b;
+            line-height: 1.4;
+          `;
+          warningMessage.textContent = "Same game cannot be used in a multi bet. Please select bets from different games.";
+          warningSection.appendChild(warningMessage);
+          
+          content.appendChild(warningSection);
+        }
+        
         // Create bet items list without mix bet section
+        // Pass duplicate bet IDs so they can be highlighted and clickable
+        const duplicateBetIdsArray = Array.from(duplicateBetIds);
         const betItemsContainer =
-          window.betIQ.overlayRenderer?.createBetItemsList(selectedData, []);
+          window.betIQ.overlayRenderer?.createBetItemsList(
+            selectedData,
+            [],
+            duplicateBetIdsArray,
+            handleUnselectBet
+          );
         if (betItemsContainer) {
           content.appendChild(betItemsContainer);
         }

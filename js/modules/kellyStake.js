@@ -9,7 +9,8 @@
 
   /**
    * Calculate Stake Allowed value using Kelly Criterion formula
-   * Formula: ((ev_percentage / 100) / (odds - 1)) × Bankroll × Kelly Fraction
+   * Formula: ((ev_percentage / 100) / (true_odds - 1)) × Bankroll × Kelly Fraction
+   * ONLY uses true_odds, no fallback
    */
   function calculateStakeAllowed(betData, bankroll, kellyFraction) {
     if (!betData || !bankroll || !kellyFraction) {
@@ -17,7 +18,8 @@
     }
 
     const evPercentage = betData.ev_percentage;
-    const odds = betData.odds;
+    // ONLY use true_odds, no fallback
+    const odds = betData.true_odds;
 
     if (
       evPercentage === null ||
@@ -157,15 +159,16 @@
     let tooltipText = "";
     if (stakeAmount !== null) {
       const evPercentage = betData.ev_percentage || 0;
-      const odds = betData.odds || 0;
+      // ONLY use true_odds, no fallback
+      const odds = betData.true_odds || 0;
       const kellyPercent = (evPercentage / 100 / (odds - 1)).toFixed(4);
       const beforeKelly = (kellyPercent * bankroll).toFixed(2);
 
-      tooltipText = `EV%: ${evPercentage}% | Odds: ${odds} | Bankroll: $${
+      tooltipText = `EV%: ${evPercentage}% | True Odds: ${odds} | Bankroll: $${
         bankroll || 0
       } | Kelly: ${
         kellyFraction || 0
-      }\n\nFormula: (EV% / 100) / (Odds - 1) × Bankroll × Kelly Fraction\n\n${kellyPercent} × $${
+      }\n\nFormula: (EV% / 100) / (True Odds - 1) × Bankroll × Kelly Fraction\n\n${kellyPercent} × $${
         bankroll || 0
       } × ${kellyFraction || 0} = $${beforeKelly} × ${
         kellyFraction || 0

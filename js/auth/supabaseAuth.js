@@ -12,6 +12,42 @@
   const SUPABASE_ANON_KEY = window.betIQ.supabaseAnonKey || ""; // Your Supabase anon key
 
   let supabaseClient = null;
+  let networkErrorCount = 0;
+  const MAX_NETWORK_ERRORS = 3;
+  let isNetworkError = false;
+
+  /**
+   * Check if error is a network/DNS resolution error
+   */
+  function isNetworkErrorType(error) {
+    if (!error) return false;
+    const errorMessage = error.message || error.toString() || "";
+    const errorName = error.name || "";
+
+    return (
+      errorMessage.includes("ERR_NAME_NOT_RESOLVED") ||
+      errorMessage.includes("Failed to fetch") ||
+      errorMessage.includes("NetworkError") ||
+      errorMessage.includes("Network request failed") ||
+      (errorName === "TypeError" && errorMessage.includes("fetch"))
+    );
+  }
+
+  /**
+   * Validate Supabase URL format
+   */
+  function validateSupabaseUrl(url) {
+    if (!url) return false;
+    try {
+      const urlObj = new URL(url);
+      return (
+        (urlObj.protocol === "http:" || urlObj.protocol === "https:") &&
+        urlObj.hostname.includes(".supabase.co")
+      );
+    } catch (e) {
+      return false;
+    }
+  }
 
   /**
    * Get Chrome extension ID for redirect URLs
@@ -33,7 +69,11 @@
   function createStorageAdapter() {
     // Use chrome.storage.local for session storage
     // Fallback to a simple adapter if chrome.storage is not available
-    if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+    if (
+      typeof chrome !== "undefined" &&
+      chrome.storage &&
+      chrome.storage.local
+    ) {
       return {
         getItem: async function (key) {
           return new Promise((resolve, reject) => {
@@ -163,6 +203,14 @@
       return null;
     }
 
+    // Validate URL format
+    if (!validateSupabaseUrl(SUPABASE_URL)) {
+      console.error(
+        "[betIQ-Plugin] Invalid Supabase URL format. Expected format: https://xxxxx.supabase.co"
+      );
+      return null;
+    }
+
     // Wait for Supabase to be available
     const supabaseAvailable = await waitForSupabase();
     if (!supabaseAvailable) {
@@ -177,19 +225,47 @@
       const storageAdapter = createStorageAdapter();
 
       // Initialize Supabase client with Chrome storage and PKCE flow
-      supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-        auth: {
-          storage: storageAdapter,
-          autoRefreshToken: true,
-          persistSession: true,
-          detectSessionInUrl: false, // Disable URL detection for extensions
-          flowType: "pkce", // Use PKCE flow for better security
-        },
-      });
+      // Disable autoRefreshToken if we've had too many network errors
+      const shouldAutoRefresh =
+        !isNetworkError && networkErrorCount < MAX_NETWORK_ERRORS;
+
+      supabaseClient = window.supabase.createClient(
+        SUPABASE_URL,
+        SUPABASE_ANON_KEY,
+        {
+          auth: {
+            storage: storageAdapter,
+            autoRefreshToken: shouldAutoRefresh,
+            persistSession: true,
+            detectSessionInUrl: false, // Disable URL detection for extensions
+            flowType: "pkce", // Use PKCE flow for better security
+          },
+        }
+      );
+
+      // Reset error count on successful initialization
+      networkErrorCount = 0;
+      isNetworkError = false;
 
       return supabaseClient;
     } catch (error) {
-      console.error("[betIQ-Plugin] Error initializing Supabase client:", error);
+      console.error(
+        "[betIQ-Plugin] Error initializing Supabase client:",
+        error
+      );
+
+      if (isNetworkErrorType(error)) {
+        isNetworkError = true;
+        networkErrorCount++;
+        console.error(
+          `[betIQ-Plugin] Network error detected (${networkErrorCount}/${MAX_NETWORK_ERRORS}). ` +
+            `Cannot resolve Supabase domain. Please check: ` +
+            `1. The Supabase project exists and is active, ` +
+            `2. The URL is correct: ${SUPABASE_URL}, ` +
+            `3. Your internet connection is working.`
+        );
+      }
+
       return null;
     }
   }
@@ -236,6 +312,12 @@
 
       return { user: data.user, session: data.session };
     } catch (error) {
+      if (isNetworkErrorType(error)) {
+        handleNetworkError(error);
+        throw new Error(
+          `Cannot connect to Supabase. Please verify the URL is correct: ${SUPABASE_URL}`
+        );
+      }
       console.error("[betIQ-Plugin] Login error:", error);
       throw error;
     }
@@ -313,20 +395,34 @@
       const { data, error } = await client.auth.getSession();
 
       if (error) {
-        console.error("[betIQ-Plugin] Error restoring session:", error);
+        if (isNetworkErrorType(error)) {
+          handleNetworkError(error);
+        } else {
+          console.error("[betIQ-Plugin] Error restoring session:", error);
+        }
         return null;
       }
 
       if (data.session) {
         // Update state
         if (window.betIQ.state) {
-          window.betIQ.state.set("auth.user", data.user, { skipPersistence: true });
-          window.betIQ.state.set("auth.session", data.session, { skipPersistence: true });
+          window.betIQ.state.set("auth.user", data.user, {
+            skipPersistence: true,
+          });
+          window.betIQ.state.set("auth.session", data.session, {
+            skipPersistence: true,
+          });
         }
 
         // Initialize sync if session restored
         if (window.betIQ.sync && window.betIQ.sync.initialize) {
-          await window.betIQ.sync.initialize();
+          await window.betIQ.sync.initialize().catch((err) => {
+            if (isNetworkErrorType(err)) {
+              handleNetworkError(err);
+            } else {
+              console.error("[betIQ-Plugin] Error initializing sync:", err);
+            }
+          });
         }
 
         return data.session;
@@ -334,7 +430,11 @@
 
       return null;
     } catch (error) {
-      console.error("[betIQ-Plugin] Error restoring session:", error);
+      if (isNetworkErrorType(error)) {
+        handleNetworkError(error);
+      } else {
+        console.error("[betIQ-Plugin] Error restoring session:", error);
+      }
       return null;
     }
   }
@@ -348,8 +448,12 @@
     // Session is automatically saved by Supabase using the Chrome storage adapter
     // This function is kept for backward compatibility
     if (window.betIQ.state) {
-      window.betIQ.state.set("auth.user", session?.user || null, { skipPersistence: true });
-      window.betIQ.state.set("auth.session", session, { skipPersistence: true });
+      window.betIQ.state.set("auth.user", session?.user || null, {
+        skipPersistence: true,
+      });
+      window.betIQ.state.set("auth.session", session, {
+        skipPersistence: true,
+      });
     }
   }
 
@@ -373,36 +477,115 @@
     // Listen for auth state changes
     const client = await getSupabaseClient();
     if (client) {
-      client.auth.onAuthStateChange((event, session) => {
-        if (event === "SIGNED_IN" && session) {
-          saveSession(session);
-          if (window.betIQ.state) {
-            window.betIQ.state.set("auth.user", session.user, { skipPersistence: true });
-            window.betIQ.state.set("auth.session", session, { skipPersistence: true });
+      client.auth.onAuthStateChange(async (event, session) => {
+        try {
+          if (event === "SIGNED_IN" && session) {
+            saveSession(session);
+            if (window.betIQ.state) {
+              window.betIQ.state.set("auth.user", session.user, {
+                skipPersistence: true,
+              });
+              window.betIQ.state.set("auth.session", session, {
+                skipPersistence: true,
+              });
+            }
+            // Initialize sync
+            if (window.betIQ.sync && window.betIQ.sync.initialize) {
+              window.betIQ.sync.initialize().catch((err) => {
+                if (isNetworkErrorType(err)) {
+                  handleNetworkError(err);
+                } else {
+                  console.error("[betIQ-Plugin] Error initializing sync:", err);
+                }
+              });
+            }
+          } else if (event === "SIGNED_OUT") {
+            clearSession();
+            if (window.betIQ.state) {
+              window.betIQ.state.set("auth.user", null, {
+                skipPersistence: true,
+              });
+              window.betIQ.state.set("auth.session", null, {
+                skipPersistence: true,
+              });
+            }
+            // Stop sync
+            if (window.betIQ.sync && window.betIQ.sync.stop) {
+              window.betIQ.sync.stop().catch((err) => {
+                console.error("[betIQ-Plugin] Error stopping sync:", err);
+              });
+            }
+          } else if (event === "TOKEN_REFRESHED") {
+            // Reset error count on successful token refresh
+            networkErrorCount = 0;
+            isNetworkError = false;
           }
-          // Initialize sync
-          if (window.betIQ.sync && window.betIQ.sync.initialize) {
-            window.betIQ.sync.initialize().catch(err => {
-              console.error("[betIQ-Plugin] Error initializing sync:", err);
-            });
-          }
-        } else if (event === "SIGNED_OUT") {
-          clearSession();
-          if (window.betIQ.state) {
-            window.betIQ.state.set("auth.user", null, { skipPersistence: true });
-            window.betIQ.state.set("auth.session", null, { skipPersistence: true });
-          }
-          // Stop sync
-          if (window.betIQ.sync && window.betIQ.sync.stop) {
-            window.betIQ.sync.stop().catch(err => {
-              console.error("[betIQ-Plugin] Error stopping sync:", err);
-            });
+        } catch (error) {
+          if (isNetworkErrorType(error)) {
+            handleNetworkError(error);
+          } else {
+            console.error("[betIQ-Plugin] Auth state change error:", error);
           }
         }
       });
 
-      // Try to restore session
-      await restoreSession();
+      // Try to restore session with error handling
+      try {
+        await restoreSession();
+      } catch (error) {
+        if (isNetworkErrorType(error)) {
+          handleNetworkError(error);
+        } else {
+          console.error("[betIQ-Plugin] Error restoring session:", error);
+        }
+      }
+    }
+  }
+
+  /**
+   * Handle network errors gracefully
+   */
+  function handleNetworkError(error) {
+    networkErrorCount++;
+    isNetworkError = true;
+
+    if (networkErrorCount >= MAX_NETWORK_ERRORS) {
+      console.error(
+        `[betIQ-Plugin] Too many network errors (${networkErrorCount}). ` +
+          `Supabase domain cannot be resolved: ${SUPABASE_URL}. ` +
+          `Please verify: ` +
+          `1. The Supabase project exists and is active at https://app.supabase.com, ` +
+          `2. The URL in supabaseConfig.js is correct, ` +
+          `3. Your internet connection is working. ` +
+          `Auto-refresh has been disabled to prevent repeated errors.`
+      );
+
+      // Disable auto-refresh by reinitializing client
+      if (supabaseClient) {
+        try {
+          const storageAdapter = createStorageAdapter();
+          supabaseClient = window.supabase.createClient(
+            SUPABASE_URL,
+            SUPABASE_ANON_KEY,
+            {
+              auth: {
+                storage: storageAdapter,
+                autoRefreshToken: false, // Disable to prevent retries
+                persistSession: true,
+                detectSessionInUrl: false,
+                flowType: "pkce",
+              },
+            }
+          );
+        } catch (e) {
+          console.error("[betIQ-Plugin] Error reinitializing client:", e);
+        }
+      }
+    } else {
+      console.warn(
+        `[betIQ-Plugin] Network error (${networkErrorCount}/${MAX_NETWORK_ERRORS}):`,
+        error.message || error
+      );
     }
   }
 
@@ -469,7 +652,10 @@
         const { data, error: sessionError } = await client.auth.getSession();
 
         if (sessionError) {
-          console.error("[betIQ-Plugin] Error getting session after OAuth:", sessionError);
+          console.error(
+            "[betIQ-Plugin] Error getting session after OAuth:",
+            sessionError
+          );
           return { error: sessionError };
         }
 
@@ -479,13 +665,17 @@
 
           // Initialize sync
           if (window.betIQ.sync && window.betIQ.sync.initialize) {
-            window.betIQ.sync.initialize().catch(err => {
+            window.betIQ.sync.initialize().catch((err) => {
               console.error("[betIQ-Plugin] Error initializing sync:", err);
             });
           }
 
           // Clean up URL
-          window.history.replaceState({}, document.title, window.location.pathname);
+          window.history.replaceState(
+            {},
+            document.title,
+            window.location.pathname
+          );
 
           return { session: data.session, user: data.user };
         }
@@ -519,4 +709,3 @@
     getOAuthRedirectUrl,
   };
 })();
-
