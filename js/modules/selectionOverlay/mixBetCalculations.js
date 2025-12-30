@@ -146,3 +146,5 @@
   window.betIQ.mixBetCalculations.calculateMinStakeAllowed =
     calculateMinStakeAllowed;
 })();
+
+

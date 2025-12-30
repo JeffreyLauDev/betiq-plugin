@@ -22,6 +22,11 @@
     }
 
     tableObserver = new MutationObserver((mutations) => {
+      // Don't process mutations if user is not logged in
+      if (!window.betIQ.auth?.isLoggedIn()) {
+        return;
+      }
+
       let shouldUpdate = false;
 
       mutations.forEach((mutation) => {
@@ -128,8 +133,8 @@
         ) {
           window.betIQ.generateBettingDataTable();
         }
-        // Re-initialize selection overlay when table changes
-        if (window.betIQ.initSelectionOverlay) {
+        // Re-initialize selection overlay when table changes (only if logged in)
+        if (window.betIQ.auth?.isLoggedIn() && window.betIQ.initSelectionOverlay) {
           setTimeout(() => {
             window.betIQ.initSelectionOverlay();
           }, 200);

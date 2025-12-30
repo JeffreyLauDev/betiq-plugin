@@ -15,6 +15,14 @@
     {
       "matches": ["https://betiq.vercel.app/*"],
       "js": [
+        "js/storageBridge.js"
+      ],
+      "run_at": "document_start",
+      "world": "ISOLATED"
+    },
+    {
+      "matches": ["https://betiq.vercel.app/*"],
+      "js": [
         "js/utils.js",
         "js/config/supabaseConfig.js",
         "js/storage.js",
@@ -50,6 +58,9 @@
   "action": {
     "default_popup": "popup.html",
     "default_title": "betIQ Table Extractor"
+  },
+  "background": {
+    "service_worker": "background.js"
   }
 }
 

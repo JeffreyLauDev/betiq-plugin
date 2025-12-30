@@ -15,6 +15,7 @@
   let networkErrorCount = 0;
   const MAX_NETWORK_ERRORS = 3;
   let isNetworkError = false;
+  let cachedSession = null; // Cache session state for synchronous checks
 
   /**
    * Check if error is a network/DNS resolution error
@@ -65,20 +66,43 @@
 
   /**
    * Create Chrome storage adapter for Supabase
+   * In MAIN world, uses message passing to background script
+   * In ISOLATED world (popup), uses chrome.storage directly
    */
   function createStorageAdapter() {
-    // Use chrome.storage.local for session storage
-    // Fallback to a simple adapter if chrome.storage is not available
+    // Check if we have direct access to chrome.storage (popup/ISOLATED world)
+    let hasDirectAccess = false;
+    let chromeStorage = null;
+
     if (
       typeof chrome !== "undefined" &&
       chrome.storage &&
       chrome.storage.local
     ) {
+      // We're in ISOLATED world (popup) - direct access available
+      chromeStorage = chrome.storage.local;
+      hasDirectAccess = true;
+      console.log(
+        "[betIQ-Plugin] 🔍 Using direct chrome.storage.local (ISOLATED world)"
+      );
+    } else if (typeof window !== "undefined") {
+      // We're in MAIN world (content script) - use postMessage bridge
+      console.log(
+        "[betIQ-Plugin] 🔍 Using postMessage bridge to ISOLATED world (MAIN world)"
+      );
+    } else {
+      console.warn(
+        "[betIQ-Plugin] 🔍 No storage access available, falling back to localStorage"
+      );
+    }
+
+    // Use direct access if available (popup)
+    if (hasDirectAccess && chromeStorage) {
       return {
         getItem: async function (key) {
           return new Promise((resolve, reject) => {
             try {
-              chrome.storage.local.get(key, (result) => {
+              chromeStorage.get(key, (result) => {
                 if (chrome.runtime.lastError) {
                   reject(new Error(chrome.runtime.lastError.message));
                 } else {
@@ -96,7 +120,7 @@
             try {
               const data = {};
               data[key] = value;
-              chrome.storage.local.set(data, () => {
+              chromeStorage.set(data, () => {
                 if (chrome.runtime.lastError) {
                   reject(new Error(chrome.runtime.lastError.message));
                 } else {
@@ -111,7 +135,7 @@
         removeItem: async function (key) {
           return new Promise((resolve, reject) => {
             try {
-              chrome.storage.local.remove(key, () => {
+              chromeStorage.remove(key, () => {
                 if (chrome.runtime.lastError) {
                   reject(new Error(chrome.runtime.lastError.message));
                 } else {
@@ -126,7 +150,125 @@
         isServer: false,
       };
     }
-    // Fallback to localStorage if chrome.storage is not available (for testing)
+
+    // Use postMessage bridge for MAIN world (content script)
+    // The storageBridge.js runs in ISOLATED world and handles chrome.storage
+    if (typeof window !== "undefined") {
+      return {
+        getItem: async function (key) {
+          return new Promise((resolve, reject) => {
+            const requestId = Math.random().toString(36).substring(7);
+            const timeout = setTimeout(() => {
+              reject(new Error("Storage request timeout"));
+            }, 5000);
+
+            const handler = (event) => {
+              if (
+                event.data &&
+                event.data.type === "betIQ-storage-response" &&
+                event.data.requestId === requestId
+              ) {
+                window.removeEventListener("message", handler);
+                clearTimeout(timeout);
+                if (event.data.error) {
+                  reject(new Error(event.data.error));
+                } else {
+                  resolve(event.data.data);
+                }
+              }
+            };
+
+            window.addEventListener("message", handler);
+            window.postMessage(
+              {
+                type: "betIQ-storage-request",
+                requestId,
+                action: "getStorage",
+                key: key,
+              },
+              "*"
+            );
+          });
+        },
+        setItem: async function (key, value) {
+          return new Promise((resolve, reject) => {
+            const requestId = Math.random().toString(36).substring(7);
+            const timeout = setTimeout(() => {
+              reject(new Error("Storage request timeout"));
+            }, 5000);
+
+            const handler = (event) => {
+              if (
+                event.data &&
+                event.data.type === "betIQ-storage-response" &&
+                event.data.requestId === requestId
+              ) {
+                window.removeEventListener("message", handler);
+                clearTimeout(timeout);
+                if (event.data.error) {
+                  reject(new Error(event.data.error));
+                } else {
+                  resolve();
+                }
+              }
+            };
+
+            window.addEventListener("message", handler);
+            window.postMessage(
+              {
+                type: "betIQ-storage-request",
+                requestId,
+                action: "setStorage",
+                key: key,
+                value: value,
+              },
+              "*"
+            );
+          });
+        },
+        removeItem: async function (key) {
+          return new Promise((resolve, reject) => {
+            const requestId = Math.random().toString(36).substring(7);
+            const timeout = setTimeout(() => {
+              reject(new Error("Storage request timeout"));
+            }, 5000);
+
+            const handler = (event) => {
+              if (
+                event.data &&
+                event.data.type === "betIQ-storage-response" &&
+                event.data.requestId === requestId
+              ) {
+                window.removeEventListener("message", handler);
+                clearTimeout(timeout);
+                if (event.data.error) {
+                  reject(new Error(event.data.error));
+                } else {
+                  resolve();
+                }
+              }
+            };
+
+            window.addEventListener("message", handler);
+            window.postMessage(
+              {
+                type: "betIQ-storage-request",
+                requestId,
+                action: "removeStorage",
+                key: key,
+              },
+              "*"
+            );
+          });
+        },
+        isServer: false,
+      };
+    }
+
+    // Fallback to localStorage if nothing else works (shouldn't happen)
+    console.warn(
+      "[betIQ-Plugin] 🔍 Falling back to localStorage (not recommended)"
+    );
     return {
       getItem: async function (key) {
         return localStorage.getItem(key);
@@ -196,29 +338,38 @@
    * Initialize Supabase client with Chrome storage adapter
    */
   async function initSupabaseClient() {
+    console.log("[betIQ-Plugin] 🔐 initSupabaseClient() called");
+
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
       console.warn(
-        "[betIQ-Plugin] Supabase credentials not configured. Set window.betIQ.supabaseUrl and window.betIQ.supabaseAnonKey"
+        "[betIQ-Plugin] 🔐 ⚠️ Supabase credentials not configured. Set window.betIQ.supabaseUrl and window.betIQ.supabaseAnonKey"
       );
       return null;
     }
 
+    console.log(
+      "[betIQ-Plugin] 🔐 Supabase URL:",
+      SUPABASE_URL.substring(0, 30) + "..."
+    );
+
     // Validate URL format
     if (!validateSupabaseUrl(SUPABASE_URL)) {
       console.error(
-        "[betIQ-Plugin] Invalid Supabase URL format. Expected format: https://xxxxx.supabase.co"
+        "[betIQ-Plugin] 🔐 ❌ Invalid Supabase URL format. Expected format: https://xxxxx.supabase.co"
       );
       return null;
     }
 
     // Wait for Supabase to be available
+    console.log("[betIQ-Plugin] 🔐 Waiting for Supabase library to load...");
     const supabaseAvailable = await waitForSupabase();
     if (!supabaseAvailable) {
       console.error(
-        "[betIQ-Plugin] Supabase client library not found. Please include @supabase/supabase-js"
+        "[betIQ-Plugin] 🔐 ❌ Supabase client library not found. Please include @supabase/supabase-js"
       );
       return null;
     }
+    console.log("[betIQ-Plugin] 🔐 ✅ Supabase library loaded");
 
     try {
       // Create Chrome storage adapter
@@ -229,12 +380,19 @@
       const shouldAutoRefresh =
         !isNetworkError && networkErrorCount < MAX_NETWORK_ERRORS;
 
+      // Generate consistent storage key from Supabase URL
+      // This ensures popup and content script use the same storage key
+      const urlObj = new URL(SUPABASE_URL);
+      const projectRef = urlObj.hostname.split(".")[0];
+      const storageKey = `sb-${projectRef}-auth-token`;
+
       supabaseClient = window.supabase.createClient(
         SUPABASE_URL,
         SUPABASE_ANON_KEY,
         {
           auth: {
             storage: storageAdapter,
+            storageKey: storageKey, // Explicit storage key for consistency across contexts
             autoRefreshToken: shouldAutoRefresh,
             persistSession: true,
             detectSessionInUrl: false, // Disable URL detection for extensions
@@ -275,7 +433,15 @@
    */
   async function getSupabaseClient() {
     if (!supabaseClient) {
+      console.log("[betIQ-Plugin] 🔐 Initializing Supabase client...");
       supabaseClient = await initSupabaseClient();
+      if (supabaseClient) {
+        console.log("[betIQ-Plugin] 🔐 ✅ Supabase client initialized");
+      } else {
+        console.warn(
+          "[betIQ-Plugin] 🔐 ⚠️ Failed to initialize Supabase client"
+        );
+      }
     }
     return supabaseClient;
   }
@@ -373,11 +539,65 @@
   }
 
   /**
-   * Check if user is logged in
+   * Check if user is logged in (synchronous)
+   * Checks cached session, state, and Chrome storage
+   * This works across both popup and content script contexts
    */
   function isLoggedIn() {
-    const session = getCurrentSession();
-    return session !== null && session !== undefined;
+    // Check cached session first (fastest)
+    if (cachedSession) {
+      return true;
+    }
+
+    // Check state
+    const sessionFromState = getCurrentSession();
+    if (sessionFromState) {
+      cachedSession = sessionFromState; // Update cache
+      return true;
+    }
+
+    // Last resort: Check Chrome storage synchronously (for cross-context checks)
+    // This is needed because popup and content script are separate contexts
+    // but they share Chrome storage
+    if (
+      typeof chrome !== "undefined" &&
+      chrome.storage &&
+      chrome.storage.local
+    ) {
+      try {
+        // Use synchronous access to check if session exists
+        // Note: chrome.storage.local.get is async, but we can't use async here
+        // So we'll rely on the cache being set by restoreSession()
+        // If cache is not set, we assume not logged in (will be set on next restoreSession call)
+      } catch (e) {
+        // Silently fail
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Force refresh the cached session from state
+   * Call this if isLoggedIn() is returning false but you know a session exists
+   * This is especially important for content scripts which run in a separate context
+   */
+  function refreshLoginCache() {
+    const sessionFromState = getCurrentSession();
+    if (sessionFromState) {
+      cachedSession = sessionFromState;
+      return true;
+    }
+
+    // Also check if Supabase client has a session (even if not in state yet)
+    // This helps when session was restored but state wasn't updated
+    if (supabaseClient && supabaseClient.auth) {
+      // We can't check synchronously, but we can trigger a refresh
+      // The next time restoreSession() is called, it will update the cache
+    }
+
+    cachedSession = null;
+    return false;
   }
 
   /**
@@ -388,22 +608,200 @@
     try {
       const client = await getSupabaseClient();
       if (!client) {
+        console.warn(
+          "[betIQ-Plugin] ⚠️ Cannot restore session: Supabase client not initialized"
+        );
         return null;
+      }
+
+      // Debug: Check Chrome storage directly to see if session exists
+      console.log("[betIQ-Plugin] 🔍 Checking Chrome storage...");
+      console.log(
+        "[betIQ-Plugin] 🔍 Chrome available?",
+        typeof chrome !== "undefined"
+      );
+      console.log(
+        "[betIQ-Plugin] 🔍 chrome.runtime available?",
+        typeof chrome !== "undefined" && !!chrome.runtime
+      );
+
+      // Try to read storage via postMessage bridge (works in MAIN world)
+      if (typeof window !== "undefined") {
+        try {
+          const storageItems = await new Promise((resolve, reject) => {
+            const requestId = Math.random().toString(36).substring(7);
+            const timeout = setTimeout(() => {
+              reject(new Error("Storage request timeout"));
+            }, 5000);
+
+            const handler = (event) => {
+              if (
+                event.data &&
+                event.data.type === "betIQ-storage-response" &&
+                event.data.requestId === requestId
+              ) {
+                window.removeEventListener("message", handler);
+                clearTimeout(timeout);
+                if (event.data.error) {
+                  reject(new Error(event.data.error));
+                } else {
+                  resolve(event.data.data || {});
+                }
+              }
+            };
+
+            window.addEventListener("message", handler);
+            window.postMessage(
+              {
+                type: "betIQ-storage-request",
+                requestId,
+                action: "getAllStorage",
+              },
+              "*"
+            );
+          });
+
+          const allKeys = Object.keys(storageItems);
+          const supabaseKeys = allKeys.filter(
+            (key) =>
+              key.includes("supabase") ||
+              key.includes("auth") ||
+              key.includes("session") ||
+              key.startsWith("sb-")
+          );
+
+          console.log(
+            "[betIQ-Plugin] 🔍 All Chrome storage keys:",
+            allKeys.length
+          );
+          if (supabaseKeys.length > 0) {
+            console.log(
+              "[betIQ-Plugin] 🔍 Found Supabase-related keys:",
+              supabaseKeys
+            );
+            supabaseKeys.forEach((key) => {
+              const value = storageItems[key];
+              console.log(
+                `[betIQ-Plugin] 🔍 Key "${key}":`,
+                typeof value === "string"
+                  ? value.substring(0, 100) + "..."
+                  : value
+              );
+            });
+          } else {
+            console.log(
+              "[betIQ-Plugin] 🔍 No Supabase keys found in Chrome storage"
+            );
+          }
+
+          // Log the storage key we're using
+          const urlObj = new URL(SUPABASE_URL);
+          const projectRef = urlObj.hostname.split(".")[0];
+          const expectedStorageKey = `sb-${projectRef}-auth-token`;
+          console.log(
+            "[betIQ-Plugin] 🔍 Expected storage key:",
+            expectedStorageKey
+          );
+          console.log(
+            "[betIQ-Plugin] 🔍 Storage key exists?",
+            expectedStorageKey in storageItems
+          );
+
+          if (expectedStorageKey in storageItems) {
+            const sessionData = storageItems[expectedStorageKey];
+            console.log(
+              "[betIQ-Plugin] 🔍 Session data in storage:",
+              typeof sessionData
+            );
+            if (typeof sessionData === "string") {
+              try {
+                const parsed = JSON.parse(sessionData);
+                console.log(
+                  "[betIQ-Plugin] 🔍 Parsed session has access_token?",
+                  !!parsed.access_token
+                );
+              } catch (e) {
+                console.log(
+                  "[betIQ-Plugin] 🔍 Failed to parse session data:",
+                  e
+                );
+              }
+            }
+          }
+        } catch (storageError) {
+          console.error(
+            "[betIQ-Plugin] 🔍 Error reading Chrome storage:",
+            storageError
+          );
+        }
+      } else if (
+        typeof chrome !== "undefined" &&
+        chrome.storage &&
+        chrome.storage.local
+      ) {
+        // Direct access (ISOLATED world - popup)
+        try {
+          const storageItems = await new Promise((resolve, reject) => {
+            chrome.storage.local.get(null, (items) => {
+              if (chrome.runtime.lastError) {
+                reject(chrome.runtime.lastError);
+              } else {
+                resolve(items);
+              }
+            });
+          });
+
+          const allKeys = Object.keys(storageItems);
+          const supabaseKeys = allKeys.filter(
+            (key) =>
+              key.includes("supabase") ||
+              key.includes("auth") ||
+              key.includes("session") ||
+              key.startsWith("sb-")
+          );
+
+          console.log(
+            "[betIQ-Plugin] 🔍 All Chrome storage keys:",
+            allKeys.length
+          );
+          if (supabaseKeys.length > 0) {
+            console.log(
+              "[betIQ-Plugin] 🔍 Found Supabase-related keys:",
+              supabaseKeys
+            );
+          }
+        } catch (storageError) {
+          console.error(
+            "[betIQ-Plugin] 🔍 Error reading Chrome storage:",
+            storageError
+          );
+        }
+      } else {
+        console.warn(
+          "[betIQ-Plugin] 🔍 Chrome storage not available in this context"
+        );
       }
 
       // Get current session (Supabase will read from Chrome storage automatically)
       const { data, error } = await client.auth.getSession();
 
       if (error) {
+        console.error("[betIQ-Plugin] ❌ Error getting session:", error);
         if (isNetworkErrorType(error)) {
           handleNetworkError(error);
-        } else {
-          console.error("[betIQ-Plugin] Error restoring session:", error);
         }
         return null;
       }
 
       if (data.session) {
+        console.log(
+          "[betIQ-Plugin] ✅ Session restored for user:",
+          data.user?.email || data.user?.id?.substring(0, 8)
+        );
+
+        // Update cache for synchronous isLoggedIn() checks
+        cachedSession = data.session;
+
         // Update state
         if (window.betIQ.state) {
           window.betIQ.state.set("auth.user", data.user, {
@@ -414,26 +812,40 @@
           });
         }
 
-        // Initialize sync if session restored
+        // Initialize sync if session restored (before returning)
         if (window.betIQ.sync && window.betIQ.sync.initialize) {
+          console.log("[betIQ-Plugin] 🔄 Initializing sync...");
           await window.betIQ.sync.initialize().catch((err) => {
             if (isNetworkErrorType(err)) {
               handleNetworkError(err);
             } else {
-              console.error("[betIQ-Plugin] Error initializing sync:", err);
+              console.error("[betIQ-Plugin] ❌ Error initializing sync:", err);
             }
           });
+        } else {
+          console.warn(
+            "[betIQ-Plugin] ⚠️ Sync module not available. Cannot initialize sync."
+          );
         }
 
         return data.session;
       }
 
+      console.log("[betIQ-Plugin] ℹ️ No session found. User not logged in.");
+      console.log("[betIQ-Plugin] 🔍 Session data:", data);
+      cachedSession = null; // Clear cache when no session found
+
+      // Also clear state
+      if (window.betIQ.state) {
+        window.betIQ.state.set("auth.session", null, { skipPersistence: true });
+        window.betIQ.state.set("auth.user", null, { skipPersistence: true });
+      }
+
       return null;
     } catch (error) {
+      console.error("[betIQ-Plugin] ❌ Exception in restoreSession:", error);
       if (isNetworkErrorType(error)) {
         handleNetworkError(error);
-      } else {
-        console.error("[betIQ-Plugin] Error restoring session:", error);
       }
       return null;
     }
@@ -445,6 +857,9 @@
    * This function is kept for backward compatibility but is no longer needed
    */
   async function saveSession(session) {
+    // Update cache for synchronous isLoggedIn() checks
+    cachedSession = session;
+
     // Session is automatically saved by Supabase using the Chrome storage adapter
     // This function is kept for backward compatibility
     if (window.betIQ.state) {
@@ -462,6 +877,9 @@
    * Note: With Chrome storage adapter, Supabase handles session clearing automatically
    */
   async function clearSession() {
+    // Clear cached session
+    cachedSession = null;
+
     // Session is automatically cleared by Supabase using the Chrome storage adapter
     // This function is kept for backward compatibility
     if (window.betIQ.state) {
@@ -474,9 +892,17 @@
    * Initialize auth (restore session on load)
    */
   async function init() {
+    console.log("[betIQ-Plugin] 🔐 Auth init() called");
+
     // Listen for auth state changes
     const client = await getSupabaseClient();
+    console.log(
+      "[betIQ-Plugin] 🔐 Supabase client obtained:",
+      client ? "✅" : "❌"
+    );
+
     if (client) {
+      console.log("[betIQ-Plugin] 🔐 Setting up auth state change listener...");
       client.auth.onAuthStateChange(async (event, session) => {
         try {
           if (event === "SIGNED_IN" && session) {
@@ -499,6 +925,24 @@
                 }
               });
             }
+            // Re-enable plugin features when user logs in
+            console.log(
+              "[betIQ-Plugin] ✅ User logged in - enabling plugin features"
+            );
+            setTimeout(() => {
+              if (window.betIQ.addKellyStakeColumn) {
+                window.betIQ.addKellyStakeColumn();
+              }
+              if (window.betIQ.addConfigurationSection) {
+                window.betIQ.addConfigurationSection();
+              }
+              if (window.betIQ.setupTableObserver) {
+                window.betIQ.setupTableObserver();
+              }
+              if (window.betIQ.generateBettingDataTable) {
+                window.betIQ.generateBettingDataTable();
+              }
+            }, 500);
           } else if (event === "SIGNED_OUT") {
             clearSession();
             if (window.betIQ.state) {
@@ -515,6 +959,27 @@
                 console.error("[betIQ-Plugin] Error stopping sync:", err);
               });
             }
+            // Disable plugin features when user logs out
+            console.log(
+              "[betIQ-Plugin] ⚠️ User logged out - disabling plugin features"
+            );
+            // Remove config section
+            const configSection = document.getElementById(
+              "betiq-config-section"
+            );
+            if (configSection) {
+              configSection.remove();
+            }
+            // Remove columns
+            const tables = document.querySelectorAll("table");
+            tables.forEach((table) => {
+              const betIQCells = table.querySelectorAll(
+                "[data-betiq-column], [data-betiq-cell]"
+              );
+              betIQCells.forEach((cell) => cell.remove());
+              const rows = table.querySelectorAll("tr[data-id]");
+              rows.forEach((row) => row.removeAttribute("data-id"));
+            });
           } else if (event === "TOKEN_REFRESHED") {
             // Reset error count on successful token refresh
             networkErrorCount = 0;
@@ -530,15 +995,25 @@
       });
 
       // Try to restore session with error handling
+      // restoreSession() will initialize sync if session exists
+      console.log("[betIQ-Plugin] 🔐 Attempting to restore session...");
       try {
-        await restoreSession();
+        const session = await restoreSession();
+        if (session) {
+          console.log("[betIQ-Plugin] 🔐 ✅ Session restored successfully");
+        } else {
+          console.log("[betIQ-Plugin] 🔐 ⚠️ No session found to restore");
+        }
       } catch (error) {
+        console.error("[betIQ-Plugin] 🔐 ❌ Error restoring session:", error);
         if (isNetworkErrorType(error)) {
           handleNetworkError(error);
-        } else {
-          console.error("[betIQ-Plugin] Error restoring session:", error);
         }
       }
+    } else {
+      console.warn(
+        "[betIQ-Plugin] 🔐 ⚠️ Cannot initialize auth: Supabase client is null"
+      );
     }
   }
 
@@ -564,12 +1039,18 @@
       if (supabaseClient) {
         try {
           const storageAdapter = createStorageAdapter();
+          // Generate consistent storage key from Supabase URL
+          const urlObj = new URL(SUPABASE_URL);
+          const projectRef = urlObj.hostname.split(".")[0];
+          const storageKey = `sb-${projectRef}-auth-token`;
+
           supabaseClient = window.supabase.createClient(
             SUPABASE_URL,
             SUPABASE_ANON_KEY,
             {
               auth: {
                 storage: storageAdapter,
+                storageKey: storageKey, // Explicit storage key for consistency
                 autoRefreshToken: false, // Disable to prevent retries
                 persistSession: true,
                 detectSessionInUrl: false,
@@ -702,6 +1183,7 @@
     getCurrentUser,
     getCurrentSession,
     isLoggedIn,
+    refreshLoginCache,
     init,
     getSupabaseClient,
     signInWithOAuth,

@@ -1185,8 +1185,22 @@
 
   /**
    * Match existing table rows with API data and add IDs
+   * Only works if user is logged in
    */
   window.betIQ.generateBettingDataTable = function () {
+    // Check if user is logged in - don't generate table if not logged in
+    if (!window.betIQ.auth?.isLoggedIn()) {
+      // Remove all data-id attributes if user logged out
+      const tables = document.querySelectorAll("table");
+      tables.forEach((table) => {
+        const rows = table.querySelectorAll("tr[data-id]");
+        rows.forEach((row) => {
+          row.removeAttribute("data-id");
+        });
+      });
+      return;
+    }
+
     const capturedBettingData = window.betIQ.getCapturedBettingData();
 
     if (capturedBettingData.length === 0) {

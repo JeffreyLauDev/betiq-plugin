@@ -3,6 +3,9 @@
 
 (function () {
   "use strict";
+  
+  // Early log to confirm content script is loading
+  console.log("[betIQ-Plugin] Content script loaded on:", window.location.href);
 
   // Load Supabase from CDN for content scripts (runs in MAIN world)
   const loadSupabase = () => {
@@ -96,14 +99,25 @@
   };
 
   // Initialize immediately
+  console.log("[betIQ-Plugin] Content script: Starting initialization...");
   if (document.documentElement) {
+    console.log("[betIQ-Plugin] Content script: Document ready, initializing...");
     initContentScripts();
   } else {
-    document.addEventListener("DOMContentLoaded", initContentScripts);
+    console.log("[betIQ-Plugin] Content script: Waiting for DOMContentLoaded...");
+    document.addEventListener("DOMContentLoaded", () => {
+      console.log("[betIQ-Plugin] Content script: DOMContentLoaded fired, initializing...");
+      initContentScripts();
+    });
   }
 
   // Listen for data from MAIN world
   window.addEventListener("betIQ-data", (event) => {
+    // Only process data if user is logged in
+    if (!window.betIQ.auth?.isLoggedIn()) {
+      return;
+    }
+
     console.log("[betIQ-Plugin] Received data from MAIN world:", event.detail);
     if (window.betIQ && window.betIQ.handleAPIResponse) {
       window.betIQ.handleAPIResponse(event.detail);
@@ -133,11 +147,22 @@
     }
 
     // Initialize auth (will restore session if exists)
+    console.log("[betIQ-Plugin] Checking for auth module...", {
+      hasBetIQ: !!window.betIQ,
+      hasAuth: !!(window.betIQ && window.betIQ.auth),
+      hasInit: !!(window.betIQ && window.betIQ.auth && window.betIQ.auth.init)
+    });
+    
     if (window.betIQ && window.betIQ.auth && window.betIQ.auth.init) {
+      console.log("[betIQ-Plugin] Calling auth.init()...");
       window.betIQ.auth.init().then(() => {
         // Sync will be initialized automatically if user is logged in
-        console.log("[betIQ-Plugin] Auth initialized");
+        console.log("[betIQ-Plugin] ✅ Auth initialized");
+      }).catch((err) => {
+        console.error("[betIQ-Plugin] ❌ Error initializing auth:", err);
       });
+    } else {
+      console.warn("[betIQ-Plugin] ⚠️ Auth module not available. Available modules:", Object.keys(window.betIQ || {}));
     }
 
     // Initialize debounced table generation
@@ -221,36 +246,47 @@
 
     // Wait a bit for Next.js/React to render initial content
     setTimeout(() => {
-      // Initial column addition
-      window.betIQ.addKellyStakeColumn();
+      // Only initialize features if user is logged in
+      if (window.betIQ.auth?.isLoggedIn()) {
+        // Initial column addition
+        window.betIQ.addKellyStakeColumn();
 
-      // Add configuration section
-      window.betIQ.addConfigurationSection();
+        // Add configuration section
+        window.betIQ.addConfigurationSection();
 
-      // Set up observer for React/Next.js updates
-      window.betIQ.setupTableObserver();
+        // Set up observer for React/Next.js updates
+        window.betIQ.setupTableObserver();
 
-      // Periodic check as backup (every 500ms) - handles edge cases where observer might miss updates
-      setInterval(() => {
-        if (window.betIQ.debouncedAddColumn) {
-          window.betIQ.debouncedAddColumn();
-        }
-        if (window.betIQ.debouncedAddConfigSection) {
-          window.betIQ.debouncedAddConfigSection();
-        }
-        // Re-apply IDs in case Next.js removed them during re-render
-        if (
-          window.betIQ.debouncedGenerateTable &&
-          typeof window.betIQ.debouncedGenerateTable === "function"
-        ) {
-          window.betIQ.debouncedGenerateTable();
-        } else if (
-          window.betIQ.generateBettingDataTable &&
-          typeof window.betIQ.generateBettingDataTable === "function"
-        ) {
-          window.betIQ.generateBettingDataTable();
-        }
-      }, 500);
+        // Periodic check as backup (every 500ms) - handles edge cases where observer might miss updates
+        // Only run if user is logged in
+        setInterval(() => {
+          // Check login status before each periodic update
+          if (!window.betIQ.auth?.isLoggedIn()) {
+            return;
+          }
+
+          if (window.betIQ.debouncedAddColumn) {
+            window.betIQ.debouncedAddColumn();
+          }
+          if (window.betIQ.debouncedAddConfigSection) {
+            window.betIQ.debouncedAddConfigSection();
+          }
+          // Re-apply IDs in case Next.js removed them during re-render
+          if (
+            window.betIQ.debouncedGenerateTable &&
+            typeof window.betIQ.debouncedGenerateTable === "function"
+          ) {
+            window.betIQ.debouncedGenerateTable();
+          } else if (
+            window.betIQ.generateBettingDataTable &&
+            typeof window.betIQ.generateBettingDataTable === "function"
+          ) {
+            window.betIQ.generateBettingDataTable();
+          }
+        }, 500);
+      } else {
+        console.log("[betIQ-Plugin] User not logged in - plugin features disabled. Please log in via popup.");
+      }
 
       console.log("[betIQ-Plugin] Initialization complete");
     }, 1000);

@@ -68,7 +68,7 @@
       },
       betting: {
         dataCache: {}, // { betId: betData }
-        stakeUsage: {}, // { betId: amount }
+        stakeUsage: {}, // { betId: { userId: amount } } - nested structure for multi-user visibility
         mixBetCombinations: [], // ["id1,id2", "id3,id4"]
       },
       ui: {
@@ -95,12 +95,11 @@
     _effects: new Map(), // Map<path, Set<effectFunction>>
 
     // localStorage key mapping for persistence
+    // Only non-synced UI preferences use localStorage
+    // All synced data (bankroll, kelly, stakes, mix bets) comes from Supabase only
     _localStorageKeys: {
-      "config.bankroll": "betiq-bankroll",
-      "config.kellyFraction": "betiq-kelly-fraction",
-      "config.debugEnabled": "betiq-debug-enabled",
-      "betting.stakeUsage": "betiq-stake-usage",
-      "betting.mixBetCombinations": "betiq-used-mix-bets",
+      "config.debugEnabled": "betiq-debug-enabled", // Local preference, not synced
+      // All other data synced to Supabase - no localStorage
     },
 
     // Whitelist of state paths that should be synced to Supabase
@@ -127,50 +126,69 @@
     },
 
     /**
-     * Initialize state from localStorage
+     * Migrate stake usage from old flat structure to new nested structure
+     * Old: { betId: amount }
+     * New: { betId: { userId: amount } }
+     * @private
+     */
+    _migrateStakeUsage(stakeUsage) {
+      if (!stakeUsage || typeof stakeUsage !== "object") {
+        return {};
+      }
+
+      // Check if already in new format (nested structure)
+      const firstKey = Object.keys(stakeUsage)[0];
+      if (firstKey && stakeUsage[firstKey] && typeof stakeUsage[firstKey] === "object") {
+        // Already in new format
+        return stakeUsage;
+      }
+
+      // Migrate from old format to new format
+      const migrated = {};
+      const currentUserId =
+        window.betIQ.auth?.getCurrentUser()?.id || "unknown_user";
+
+      for (const [betId, amount] of Object.entries(stakeUsage)) {
+        if (typeof amount === "number" && amount > 0) {
+          migrated[betId] = { [currentUserId]: amount };
+        }
+      }
+
+      if (Object.keys(migrated).length > 0) {
+        console.log(
+          "[betIQ-Plugin] Migrated stake usage from old format to new nested format"
+        );
+        // Don't save to localStorage - data comes from Supabase only
+      }
+
+      return migrated;
+    },
+
+    /**
+     * Initialize state
+     * Note: Synced data (bankroll, kelly, stakes, mix bets) is loaded from Supabase, not localStorage
+     * Only local preferences (debugEnabled) use localStorage
      */
     init() {
-      // Load config
-      const savedBankroll = localStorage.getItem("betiq-bankroll");
-      const savedKelly = localStorage.getItem("betiq-kelly-fraction");
+      // Load only local preferences from localStorage
+      // All synced data will be loaded from Supabase when sync initializes
       const savedDebug = localStorage.getItem("betiq-debug-enabled");
 
-      if (savedBankroll) {
-        this._state.config.bankroll = parseFloat(savedBankroll);
-      }
-      if (savedKelly) {
-        this._state.config.kellyFraction = parseFloat(savedKelly);
-      }
       if (savedDebug !== null) {
         this._state.config.debugEnabled = savedDebug === "true";
         window.betiqDebugEnabled = this._state.config.debugEnabled;
+      } else {
+        // Default to true if not set
+        this._state.config.debugEnabled = true;
+        window.betiqDebugEnabled = true;
       }
 
-      // Load stake usage
-      try {
-        const savedStakeUsage = localStorage.getItem("betiq-stake-usage");
-        if (savedStakeUsage) {
-          this._state.betting.stakeUsage = JSON.parse(savedStakeUsage);
-        }
-      } catch (e) {
-        console.error("[betIQ-Plugin] Error loading stake usage:", e);
-      }
-
-      // Load mix bet combinations
-      try {
-        const savedMixBets = localStorage.getItem("betiq-used-mix-bets");
-        if (savedMixBets) {
-          this._state.betting.mixBetCombinations = JSON.parse(savedMixBets);
-        }
-      } catch (e) {
-        console.error("[betIQ-Plugin] Error loading mix bet combinations:", e);
-      }
+      // Don't load bankroll, kelly, stakes, or mix bets from localStorage
+      // They will be loaded from Supabase when sync initializes
 
       // Trigger initial effects
       this._notifySubscribers();
       this._runEffects([
-        "config.bankroll",
-        "config.kellyFraction",
         "config.debugEnabled",
       ]);
     },
@@ -245,27 +263,21 @@
 
     /**
      * Persist state value to localStorage
+     * Only persists non-synced data (like debugEnabled)
+     * All synced data is stored in Supabase only
      * @private
      */
     _persistToLocalStorage(path, value) {
       const storageKey = this._localStorageKeys[path];
       if (!storageKey) return;
 
-      if (path === "config.bankroll" || path === "config.kellyFraction") {
-        if (value !== null && value !== undefined) {
-          localStorage.setItem(storageKey, value.toString());
-        } else {
-          localStorage.removeItem(storageKey);
-        }
-      } else if (path === "config.debugEnabled") {
+      // Only persist non-synced preferences
+      if (path === "config.debugEnabled") {
         localStorage.setItem(storageKey, value.toString());
         window.betiqDebugEnabled = value;
-      } else if (
-        path === "betting.stakeUsage" ||
-        path === "betting.mixBetCombinations"
-      ) {
-        localStorage.setItem(storageKey, JSON.stringify(value));
       }
+      // All other paths (bankroll, kelly, stakes, mix bets) are synced to Supabase only
+      // No localStorage persistence for synced data
     },
 
     /**
@@ -373,19 +385,56 @@
   // ============================================
 
   /**
-   * Get stake used for a bet (backward compatibility)
+   * Get stake used for a bet
+   * @param {string} betId - The bet ID
+   * @param {string} [userId] - Optional user ID. If provided, returns that user's stake. Otherwise returns sum of all users' stakes.
+   * @returns {number} Stake amount (single user's stake or sum of all users' stakes)
    */
-  window.betIQ.getStakeUsed = function (betId) {
+  window.betIQ.getStakeUsed = function (betId, userId) {
     const stakeUsage = window.betIQ.state.get("betting.stakeUsage") || {};
-    return stakeUsage[betId] || 0;
+    const betStakes = stakeUsage[betId];
+    
+    if (!betStakes || typeof betStakes !== "object") {
+      return 0;
+    }
+
+    // If userId provided, return that user's stake
+    if (userId) {
+      return betStakes[userId] || 0;
+    }
+
+    // Otherwise, return sum of all users' stakes
+    return Object.values(betStakes).reduce((sum, amount) => sum + (parseFloat(amount) || 0), 0);
   };
 
   /**
-   * Set stake used for a bet (backward compatibility)
+   * Set stake used for a bet (sets current user's stake)
+   * @param {string} betId - The bet ID
+   * @param {number} amount - The stake amount to set for current user
    */
   window.betIQ.setStakeUsed = function (betId, amount) {
     const stakeUsage = window.betIQ.state.get("betting.stakeUsage") || {};
-    stakeUsage[betId] = Math.max(0, parseFloat(amount) || 0);
+    const currentUserId =
+      window.betIQ.auth?.getCurrentUser()?.id || "unknown_user";
+    const stakeAmount = Math.max(0, parseFloat(amount) || 0);
+
+    // Initialize bet entry if it doesn't exist
+    if (!stakeUsage[betId]) {
+      stakeUsage[betId] = {};
+    }
+
+    // Set current user's stake
+    if (stakeAmount > 0) {
+      stakeUsage[betId][currentUserId] = stakeAmount;
+    } else {
+      // Remove user's stake if amount is 0
+      delete stakeUsage[betId][currentUserId];
+      // Clean up empty bet entry
+      if (Object.keys(stakeUsage[betId]).length === 0) {
+        delete stakeUsage[betId];
+      }
+    }
+
     window.betIQ.state.set("betting.stakeUsage", stakeUsage);
 
     // Trigger recalculation of allocation displays
@@ -395,23 +444,60 @@
   };
 
   /**
-   * Get all stake usage (backward compatibility)
+   * Get all stake usage (returns nested structure)
+   * @returns {Object} Nested structure { betId: { userId: amount } }
    */
   window.betIQ.getAllStakeUsage = function () {
     const stakeUsage = window.betIQ.state.get("betting.stakeUsage") || {};
-    return { ...stakeUsage };
+    // Return deep copy to prevent mutations
+    return JSON.parse(JSON.stringify(stakeUsage));
   };
 
   /**
-   * Clear stake usage for a bet or all bets (backward compatibility)
+   * Clear stake usage for a bet or all bets
+   * @param {string} [betId] - Optional bet ID. If provided, clears only that bet. Otherwise clears all bets.
+   * @param {string} [userId] - Optional user ID. If provided, clears only that user's stake. Otherwise clears all users' stakes for the bet.
    */
-  window.betIQ.clearStakeUsage = function (betId) {
+  window.betIQ.clearStakeUsage = function (betId, userId) {
     const stakeUsage = window.betIQ.state.get("betting.stakeUsage") || {};
+    const currentUserId =
+      window.betIQ.auth?.getCurrentUser()?.id || "unknown_user";
+    const targetUserId = userId || currentUserId;
+
     if (betId) {
-      delete stakeUsage[betId];
+      // Clear specific bet
+      if (userId) {
+        // Clear specific user's stake for this bet
+        if (stakeUsage[betId] && stakeUsage[betId][targetUserId]) {
+          delete stakeUsage[betId][targetUserId];
+          // Clean up empty bet entry
+          if (Object.keys(stakeUsage[betId]).length === 0) {
+            delete stakeUsage[betId];
+          }
+        }
+      } else {
+        // Clear all users' stakes for this bet
+        delete stakeUsage[betId];
+      }
     } else {
-      Object.keys(stakeUsage).forEach((key) => delete stakeUsage[key]);
+      // Clear all bets
+      if (userId) {
+        // Clear specific user's stakes from all bets
+        Object.keys(stakeUsage).forEach((bid) => {
+          if (stakeUsage[bid][targetUserId]) {
+            delete stakeUsage[bid][targetUserId];
+            // Clean up empty bet entry
+            if (Object.keys(stakeUsage[bid]).length === 0) {
+              delete stakeUsage[bid];
+            }
+          }
+        });
+      } else {
+        // Clear all bets for all users
+        Object.keys(stakeUsage).forEach((key) => delete stakeUsage[key]);
+      }
     }
+
     window.betIQ.state.set("betting.stakeUsage", stakeUsage);
 
     if (window.betIQ.updateAllocationCells) {

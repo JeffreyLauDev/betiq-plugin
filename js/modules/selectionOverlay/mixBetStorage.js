@@ -10,22 +10,18 @@
 
   /**
    * Get used mix bet combinations from centralized state
+   * Data comes from Supabase only, no localStorage fallback
    */
   function getUsedMixBetCombinations() {
     if (window.betIQ && window.betIQ.state) {
       return window.betIQ.state.get("betting.mixBetCombinations") || [];
     }
-    // Fallback to localStorage if state not available
-    try {
-      const stored = localStorage.getItem("betiq-used-mix-bets");
-      return stored ? JSON.parse(stored) : [];
-    } catch (e) {
-      return [];
-    }
+    // Return empty array if state not available (data will load from Supabase)
+    return [];
   }
 
   /**
-   * Save a mix bet combination as used (uses centralized state)
+   * Save a mix bet combination as used (uses centralized state, syncs to Supabase)
    */
   function saveUsedMixBetCombination(betIds) {
     try {
@@ -34,12 +30,11 @@
       if (!used.includes(combinationKey)) {
         used.push(combinationKey);
         
-        // Save to centralized state
+        // Save to centralized state (will sync to Supabase)
         if (window.betIQ && window.betIQ.state) {
           window.betIQ.state.set("betting.mixBetCombinations", used);
         } else {
-          // Fallback to localStorage
-          localStorage.setItem("betiq-used-mix-bets", JSON.stringify(used));
+          console.warn("[betIQ-Plugin] State not available, cannot save mix bet combination");
         }
       }
     } catch (e) {

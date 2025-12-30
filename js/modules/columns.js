@@ -72,8 +72,30 @@
 
   /**
    * Add full column to table - handles React/Next.js frequent re-renders
+   * Only adds columns if user is logged in
    */
   window.betIQ.addKellyStakeColumn = function () {
+    // Check if user is logged in - don't add columns if not logged in
+    if (!window.betIQ.auth?.isLoggedIn()) {
+      // Remove columns if they exist and user logged out
+      const table = document.querySelector("table");
+      if (table) {
+        // Remove all betIQ columns
+        const betIQCells = table.querySelectorAll("[data-betiq-column], [data-betiq-cell]");
+        betIQCells.forEach(cell => {
+          const row = cell.parentElement;
+          if (row) {
+            cell.remove();
+            // Remove empty rows if needed
+            if (row.children.length === 0) {
+              row.remove();
+            }
+          }
+        });
+      }
+      return;
+    }
+
     if (getColumnProcessing()) {
       return;
     }

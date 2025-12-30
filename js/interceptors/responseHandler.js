@@ -31,8 +31,14 @@
 
   /**
    * Handle intercepted API response
+   * Only processes data if user is logged in
    */
   window.betIQ.handleAPIResponse = function (data) {
+    // Don't process data if user is not logged in
+    if (!window.betIQ.auth?.isLoggedIn()) {
+      return;
+    }
+
     if (Array.isArray(data) && data.length > 0) {
       window.betIQ.setCapturedBettingData(data);
 
