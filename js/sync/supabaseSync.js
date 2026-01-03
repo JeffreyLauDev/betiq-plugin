@@ -708,15 +708,27 @@
           if (shouldSync) {
             logger.debug(`Queuing sync for ${path}`);
             console.log(`[betIQ-Sync] 📤 Queuing sync for ${path}:`, newValue);
+
             // Debounce sync operations
-            pendingChanges.set(path, { newValue, oldValue });
+            // Preserve the EARLIEST oldValue to detect all changes in a batch
+            if (!pendingChanges.has(path)) {
+              // First change for this path - store both values
+              pendingChanges.set(path, { newValue, oldValue });
+            } else {
+              // Subsequent change - update newValue but keep original oldValue
+              const existing = pendingChanges.get(path);
+              pendingChanges.set(path, {
+                newValue: newValue,           // Latest value
+                oldValue: existing.oldValue   // Original value before first change
+              });
+            }
 
             // Clear existing timeout
             if (syncTimeout) {
               clearTimeout(syncTimeout);
             }
 
-            // Sync after 500ms debounce
+            // Sync after 150ms debounce (reduced from 500ms for better UX)
             syncTimeout = setTimeout(() => {
               logger.debug(`Executing sync for ${pendingChanges.size} path(s)`);
               console.log(
@@ -727,7 +739,7 @@
                 syncToSupabase(changePath, change.newValue, change.oldValue);
               });
               pendingChanges.clear();
-            }, 500);
+            }, 150);
           } else {
             logger.debug(`Path ${path} is not in sync whitelist`);
             // Always warn if trying to sync a non-whitelisted path (might indicate a bug)

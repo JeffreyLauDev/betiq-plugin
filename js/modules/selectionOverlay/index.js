@@ -168,20 +168,18 @@
       manualStakeInput.value = "";
       setManualStakeInputValue("");
 
-      // Force update by clearing lastSelectedBetIds so overlay re-renders
-      setLastSelectedBetIds(null);
-
-      // Update the overlay to reflect new stakes
-      setTimeout(() => {
-        updateSelectionOverlay();
-      }, 100);
-
       // Show notification if available
       if (window.betIQ.showNotification) {
         window.betIQ.showNotification(
           `Applied $${stakeValue.toFixed(2)} to ${appliedCount} bet(s)`
         );
       }
+
+      // Unselect all bets after successful application
+      // This closes the overlay and prevents showing "already used" warning
+      setTimeout(() => {
+        handleUnselectAll();
+      }, 100);
     }
   }
 

@@ -12,7 +12,7 @@
     if (!window.betIQ.state) return "";
     return window.betIQ.state.get("ui.columns.lastTableHash") || "";
   }
-  
+
   function setLastTableHash(value) {
     if (window.betIQ.state) {
       window.betIQ.state.set("ui.columns.lastTableHash", value, {
@@ -20,12 +20,12 @@
       });
     }
   }
-  
+
   function getColumnProcessing() {
     if (!window.betIQ.state) return false;
     return window.betIQ.state.get("ui.columns.columnProcessing") || false;
   }
-  
+
   function setColumnProcessing(value) {
     if (window.betIQ.state) {
       window.betIQ.state.set("ui.columns.columnProcessing", value, {
@@ -77,12 +77,17 @@
   window.betIQ.addKellyStakeColumn = function () {
     // Check if user is logged in - don't add columns if not logged in
     if (!window.betIQ.auth?.isLoggedIn()) {
+      if (window.betIQ.addKellyStakeColumn) {
+        window.betIQ.addKellyStakeColumn();
+      }
       // Remove columns if they exist and user logged out
       const table = document.querySelector("table");
       if (table) {
         // Remove all betIQ columns
-        const betIQCells = table.querySelectorAll("[data-betiq-column], [data-betiq-cell]");
-        betIQCells.forEach(cell => {
+        const betIQCells = table.querySelectorAll(
+          "[data-betiq-column], [data-betiq-cell]"
+        );
+        betIQCells.forEach((cell) => {
           const row = cell.parentElement;
           if (row) {
             cell.remove();

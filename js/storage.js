@@ -138,7 +138,11 @@
 
       // Check if already in new format (nested structure)
       const firstKey = Object.keys(stakeUsage)[0];
-      if (firstKey && stakeUsage[firstKey] && typeof stakeUsage[firstKey] === "object") {
+      if (
+        firstKey &&
+        stakeUsage[firstKey] &&
+        typeof stakeUsage[firstKey] === "object"
+      ) {
         // Already in new format
         return stakeUsage;
       }
@@ -188,9 +192,7 @@
 
       // Trigger initial effects
       this._notifySubscribers();
-      this._runEffects([
-        "config.debugEnabled",
-      ]);
+      this._runEffects(["config.debugEnabled"]);
     },
 
     /**
@@ -393,7 +395,7 @@
   window.betIQ.getStakeUsed = function (betId, userId) {
     const stakeUsage = window.betIQ.state.get("betting.stakeUsage") || {};
     const betStakes = stakeUsage[betId];
-    
+
     if (!betStakes || typeof betStakes !== "object") {
       return 0;
     }
@@ -404,7 +406,10 @@
     }
 
     // Otherwise, return sum of all users' stakes
-    return Object.values(betStakes).reduce((sum, amount) => sum + (parseFloat(amount) || 0), 0);
+    return Object.values(betStakes).reduce(
+      (sum, amount) => sum + (parseFloat(amount) || 0),
+      0
+    );
   };
 
   /**
@@ -413,7 +418,13 @@
    * @param {number} amount - The stake amount to set for current user
    */
   window.betIQ.setStakeUsed = function (betId, amount) {
-    const stakeUsage = window.betIQ.state.get("betting.stakeUsage") || {};
+    const raw = window.betIQ.state.get("betting.stakeUsage") || {};
+
+    const stakeUsage =
+      typeof structuredClone === "function"
+        ? structuredClone(raw)
+        : JSON.parse(JSON.stringify(raw));
+
     const currentUserId =
       window.betIQ.auth?.getCurrentUser()?.id || "unknown_user";
     const stakeAmount = Math.max(0, parseFloat(amount) || 0);
@@ -459,7 +470,14 @@
    * @param {string} [userId] - Optional user ID. If provided, clears only that user's stake. Otherwise clears all users' stakes for the bet.
    */
   window.betIQ.clearStakeUsage = function (betId, userId) {
-    const stakeUsage = window.betIQ.state.get("betting.stakeUsage") || {};
+    const raw = window.betIQ.state.get("betting.stakeUsage") || {};
+
+    // Deep clone to avoid reference mutation
+    const stakeUsage =
+      typeof structuredClone === "function"
+        ? structuredClone(raw)
+        : JSON.parse(JSON.stringify(raw));
+
     const currentUserId =
       window.betIQ.auth?.getCurrentUser()?.id || "unknown_user";
     const targetUserId = userId || currentUserId;

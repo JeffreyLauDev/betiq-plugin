@@ -14,7 +14,9 @@
    */
   function getUsedMixBetCombinations() {
     if (window.betIQ && window.betIQ.state) {
-      return window.betIQ.state.get("betting.mixBetCombinations") || [];
+      const combinations =
+        window.betIQ.state.get("betting.mixBetCombinations") || [];
+      return JSON.parse(JSON.stringify(combinations));
     }
     // Return empty array if state not available (data will load from Supabase)
     return [];
@@ -25,16 +27,25 @@
    */
   function saveUsedMixBetCombination(betIds) {
     try {
-      const used = getUsedMixBetCombinations();
-      const combinationKey = betIds.sort().join(",");
+      const raw = getUsedMixBetCombinations();
+
+      // Deep clone to avoid reference mutation
+      const used = typeof structuredClone === "function"
+        ? structuredClone(raw)
+        : JSON.parse(JSON.stringify(raw));
+
+      // Sort a copy of betIds to avoid mutating the input array
+      const combinationKey = [...betIds].sort().join(",");
       if (!used.includes(combinationKey)) {
         used.push(combinationKey);
-        
+
         // Save to centralized state (will sync to Supabase)
         if (window.betIQ && window.betIQ.state) {
           window.betIQ.state.set("betting.mixBetCombinations", used);
         } else {
-          console.warn("[betIQ-Plugin] State not available, cannot save mix bet combination");
+          console.warn(
+            "[betIQ-Plugin] State not available, cannot save mix bet combination"
+          );
         }
       }
     } catch (e) {
@@ -88,7 +99,8 @@
       const subsets = generateCombinations(sortedBetIds, subsetSize);
 
       for (const subset of subsets) {
-        const subsetKey = subset.join(",");
+        // Sort subset before joining to match how combinations are saved
+        const subsetKey = [...subset].sort().join(",");
         if (used.includes(subsetKey)) {
           // Found a used subset - add all bet IDs from this subset to blocked set
           subset.forEach((betId) => blockedBetIdsSet.add(betId));
@@ -105,7 +117,9 @@
   }
 
   // Expose functions
-  window.betIQ.mixBetStorage.getUsedMixBetCombinations = getUsedMixBetCombinations;
-  window.betIQ.mixBetStorage.saveUsedMixBetCombination = saveUsedMixBetCombination;
+  window.betIQ.mixBetStorage.getUsedMixBetCombinations =
+    getUsedMixBetCombinations;
+  window.betIQ.mixBetStorage.saveUsedMixBetCombination =
+    saveUsedMixBetCombination;
   window.betIQ.mixBetStorage.isMixBetCombinationUsed = isMixBetCombinationUsed;
 })();
