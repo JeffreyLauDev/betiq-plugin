@@ -383,19 +383,19 @@
     }
 
     try {
-      // Try to get user info from auth.users via admin API
-      // Note: This requires a public function in Supabase or storing email in tables
-      // For now, we'll use a fallback approach
-
-      // Option 1: If you add user_email column to your tables, use that
-      // Option 2: Create a Supabase function to get user email
-      // Option 3: Store username in user_metadata during signup
-
-      // Fallback: Use shortened user ID
-      const displayName = "User " + userId.substring(0, 8);
+      const user = window.betIQ.auth?.getCurrentUser();
+      const displayName =
+        "User " +
+        (user?.raw_user_meta_data?.display_name ||
+          user?.user_metadata?.display_name ||
+          user?.raw_user_meta_data?.username ||
+          user?.user_metadata?.username ||
+          user?.email ||
+          userId.substring(0, 8));
       userDisplayNameCache.set(userId, displayName);
       return displayName;
     } catch (error) {
+      logger.error("Error getting displayName from user:", error);
       const fallback = "Another user";
       userDisplayNameCache.set(userId, fallback);
       return fallback;
@@ -708,15 +708,27 @@
           if (shouldSync) {
             logger.debug(`Queuing sync for ${path}`);
             console.log(`[betIQ-Sync] 📤 Queuing sync for ${path}:`, newValue);
+
             // Debounce sync operations
-            pendingChanges.set(path, { newValue, oldValue });
+            // Preserve the EARLIEST oldValue to detect all changes in a batch
+            if (!pendingChanges.has(path)) {
+              // First change for this path - store both values
+              pendingChanges.set(path, { newValue, oldValue });
+            } else {
+              // Subsequent change - update newValue but keep original oldValue
+              const existing = pendingChanges.get(path);
+              pendingChanges.set(path, {
+                newValue: newValue, // Latest value
+                oldValue: existing.oldValue, // Original value before first change
+              });
+            }
 
             // Clear existing timeout
             if (syncTimeout) {
               clearTimeout(syncTimeout);
             }
 
-            // Sync after 500ms debounce
+            // Sync after 150ms debounce (reduced from 500ms for better UX)
             syncTimeout = setTimeout(() => {
               logger.debug(`Executing sync for ${pendingChanges.size} path(s)`);
               console.log(
@@ -727,7 +739,7 @@
                 syncToSupabase(changePath, change.newValue, change.oldValue);
               });
               pendingChanges.clear();
-            }, 500);
+            }, 150);
           } else {
             logger.debug(`Path ${path} is not in sync whitelist`);
             // Always warn if trying to sync a non-whitelisted path (might indicate a bug)

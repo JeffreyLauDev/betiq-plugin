@@ -493,6 +493,11 @@
         normalized: { game, player, prop, betType, gameTime },
       };
 
+      // Skip rows where required fields are empty (React hasn't populated data yet)
+      if (!game || !player || !prop) {
+        return; // Skip this row - table data not loaded yet
+      }
+
       // Try to find matches in API data
       const potentialMatches = [];
       let perfectMatch = null;
@@ -1190,6 +1195,9 @@
   window.betIQ.generateBettingDataTable = function () {
     // Check if user is logged in - don't generate table if not logged in
     if (!window.betIQ.auth?.isLoggedIn()) {
+      if (window.betIQ.addKellyStakeColumn) {
+        window.betIQ.addKellyStakeColumn();
+      }
       // Remove all data-id attributes if user logged out
       const tables = document.querySelectorAll("table");
       tables.forEach((table) => {
@@ -1416,7 +1424,8 @@
         window.betIQ._lastSelectorDiagnostics = diagnostics;
       }
 
-      if (window.betIQ.showRowIdError) {
+      // Only show error in debug mode to avoid confusing users
+      if (window.betIQ.showRowIdError && window.betiqDebugEnabled) {
         window.betIQ.showRowIdError(errorMessage);
       }
 
