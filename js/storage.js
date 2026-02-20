@@ -524,11 +524,80 @@
   };
 
   /**
+   * Normalize a raw API record so it has canonical fields (game, player, prop, bet_type, bookie)
+   * for matching. Fills in from alternate field names used by live_bets / betting_alerts.
+   * live_bets uses: fixture_name, player_name, prop_name, side, side_type, number.
+   */
+  function normalizeBetForMatching(bet) {
+    if (!bet || typeof bet !== "object") return bet;
+    const b = bet;
+    if (!b.game && (b.fixture_name || b.game_name || b.match || b.matchup)) {
+      b.game = b.fixture_name || b.game_name || b.match || b.matchup;
+    }
+    if (!b.player && (b.player_name || b.athlete)) {
+      b.player = b.player_name || b.athlete;
+    }
+    if (!b.prop && (b.prop_type || b.stat_type)) {
+      b.prop = b.prop_type || b.stat_type;
+    }
+    if (
+      !b.prop &&
+      (b.side != null || b.side_type != null || b.number != null)
+    ) {
+      const dir = (
+        b.side != null
+          ? String(b.side)
+          : b.side_type != null
+          ? String(b.side_type)
+          : ""
+      ).trim();
+      const line = (
+        b.number != null
+          ? String(b.number)
+          : b.line != null
+          ? String(b.line)
+          : b.line_value != null
+          ? String(b.line_value)
+          : ""
+      ).trim();
+      b.prop = [dir, line].filter(Boolean).join(" ");
+    }
+    if (!b.prop && (b.direction != null || b.line != null)) {
+      const dir = b.direction != null ? String(b.direction).trim() : "";
+      const line =
+        b.line != null
+          ? String(b.line).trim()
+          : b.line_value != null
+          ? String(b.line_value).trim()
+          : "";
+      b.prop = [dir, line].filter(Boolean).join(" ");
+    }
+    if (
+      !b.bet_type &&
+      (b.prop_name || b.market_display || b.type || b.direction)
+    ) {
+      b.bet_type = b.prop_name || b.market_display || b.type || b.direction;
+    }
+    if (!b.bookie && (b.bookmaker || b.book || b.book_id)) {
+      b.bookie =
+        b.bookmaker || b.book || (b.book_id != null ? String(b.book_id) : "");
+    }
+    // Kelly/stake allowed expects ev_percentage and true_odds; live_bets API uses ev
+    if (b.ev != null && (b.ev_percentage === null || b.ev_percentage === undefined)) {
+      b.ev_percentage = b.ev;
+    }
+    if (b.true_odds == null && b.odds != null) {
+      b.true_odds = b.odds;
+    }
+    return b;
+  }
+
+  /**
    * Set captured betting data (merges into cache instead of replacing)
    */
   window.betIQ.setCapturedBettingData = function (data) {
     if (Array.isArray(data)) {
-      // Log first item to see field structure
+      // Log first item to see field structure when canonical fields are missing
       if (data.length > 0 && window.betiqDebugEnabled) {
         console.log(
           "[betIQ-Plugin] Sample API data fields:",
@@ -543,10 +612,12 @@
       let cachedCount = 0;
       data.forEach((bet) => {
         if (bet) {
+          normalizeBetForMatching(bet);
           // Try bet_id first, then id, then generate a key from other fields
           const betId =
             bet.bet_id ||
             bet.id ||
+            bet.bet_key ||
             (bet.game && bet.player && bet.prop
               ? `${bet.game}_${bet.player}_${bet.prop}`
               : null);

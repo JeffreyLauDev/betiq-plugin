@@ -62,22 +62,19 @@
    */
   function handleUnselectBet(betId) {
     if (!betId) return;
-    
-    const table = document.querySelector("table");
+
+    const table = window.betIQ.getTableOrContainer && window.betIQ.getTableOrContainer();
     if (!table) return;
 
-    const allRows = table.querySelectorAll("tbody tr, table > tr");
+    const allRows = window.betIQ.getDataRows(table);
     for (const row of allRows) {
       if (row.querySelectorAll("th").length > 0) continue;
       
       const rowBetId = row.getAttribute("data-id");
       if (rowBetId === betId) {
-        const checkbox = row.querySelector('button[role="checkbox"]');
-        if (
-          checkbox &&
-          (checkbox.getAttribute("data-state") === "checked" ||
-            checkbox.getAttribute("aria-checked") === "true")
-        ) {
+        var rowCheckboxSel = (window.betIQ.getSiteConfig && window.betIQ.getSiteConfig().rowCheckboxSelector) || 'button[role="checkbox"]';
+        const checkbox = row.querySelector(rowCheckboxSel);
+        if (checkbox && window.betIQ.isRowCheckboxChecked && window.betIQ.isRowCheckboxChecked(checkbox)) {
           checkbox.click();
           break;
         }
@@ -91,20 +88,17 @@
   function handleUnselectAll() {
     // Find all selected checkboxes and click them to unselect
     // Use a small delay between clicks to ensure React processes each one
-    const table = document.querySelector("table");
+    const table = window.betIQ.getTableOrContainer && window.betIQ.getTableOrContainer();
     if (table) {
-      const allRows = table.querySelectorAll("tbody tr, table > tr");
+      const allRows = window.betIQ.getDataRows(table);
       const selectedCheckboxes = [];
+      var rowCheckboxSel = (window.betIQ.getSiteConfig && window.betIQ.getSiteConfig().rowCheckboxSelector) || 'button[role="checkbox"]';
 
       allRows.forEach((row) => {
         if (row.querySelectorAll("th").length > 0) return;
 
-        const checkbox = row.querySelector('button[role="checkbox"]');
-        if (
-          checkbox &&
-          (checkbox.getAttribute("data-state") === "checked" ||
-            checkbox.getAttribute("aria-checked") === "true")
-        ) {
+        const checkbox = row.querySelector(rowCheckboxSel);
+        if (checkbox && window.betIQ.isRowCheckboxChecked && window.betIQ.isRowCheckboxChecked(checkbox)) {
           selectedCheckboxes.push(checkbox);
         }
       });
@@ -115,14 +109,9 @@
           // Re-query the checkbox in case React re-rendered the DOM
           const row = checkbox.closest("tr");
           if (row) {
-            const currentCheckbox = row.querySelector(
-              'button[role="checkbox"]'
-            );
-            if (
-              currentCheckbox &&
-              (currentCheckbox.getAttribute("data-state") === "checked" ||
-                currentCheckbox.getAttribute("aria-checked") === "true")
-            ) {
+            var rowCheckboxSel = (window.betIQ.getSiteConfig && window.betIQ.getSiteConfig().rowCheckboxSelector) || 'button[role="checkbox"]';
+            const currentCheckbox = row.querySelector(rowCheckboxSel);
+            if (currentCheckbox && window.betIQ.isRowCheckboxChecked && window.betIQ.isRowCheckboxChecked(currentCheckbox)) {
               currentCheckbox.click();
             }
           } else {
@@ -472,7 +461,7 @@
    * Setup observer for checkbox changes
    */
   function setupCheckboxObserver() {
-    const table = document.querySelector("table");
+    const table = window.betIQ.getTableOrContainer && window.betIQ.getTableOrContainer();
     if (!table) {
       return;
     }
@@ -482,18 +471,22 @@
       checkboxObserver = null;
     }
 
+    var rowCheckboxSel = (window.betIQ.getSiteConfig && window.betIQ.getSiteConfig().rowCheckboxSelector) || 'button[role="checkbox"]';
     checkboxObserver = new MutationObserver((mutations) => {
       let shouldUpdate = false;
 
       mutations.forEach((mutation) => {
         if (mutation.type === "attributes") {
           const target = mutation.target;
-          if (
+          var isButtonCheckbox =
             target.tagName === "BUTTON" &&
             target.getAttribute("role") === "checkbox" &&
-            (mutation.attributeName === "data-state" ||
-              mutation.attributeName === "aria-checked")
-          ) {
+            (mutation.attributeName === "data-state" || mutation.attributeName === "aria-checked");
+          var isInputCheckbox =
+            target.tagName === "INPUT" &&
+            target.type === "checkbox" &&
+            mutation.attributeName === "checked";
+          if (isButtonCheckbox || isInputCheckbox) {
             shouldUpdate = true;
           }
         }
@@ -503,7 +496,8 @@
             if (
               node.nodeType === 1 &&
               (node.tagName === "BUTTON" ||
-                node.querySelector?.('button[role="checkbox"]'))
+                node.tagName === "INPUT" ||
+                node.querySelector?.(rowCheckboxSel))
             ) {
               shouldUpdate = true;
             }
@@ -529,11 +523,12 @@
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ["data-state", "aria-checked"],
+      attributeFilter: ["data-state", "aria-checked", "checked"],
     });
 
     table.addEventListener("click", (e) => {
-      const checkbox = e.target.closest('button[role="checkbox"]');
+      var rowCheckboxSel = (window.betIQ.getSiteConfig && window.betIQ.getSiteConfig().rowCheckboxSelector) || 'button[role="checkbox"]';
+      const checkbox = e.target.closest(rowCheckboxSel);
       if (checkbox) {
         setTimeout(() => {
           updateSelectionOverlay();

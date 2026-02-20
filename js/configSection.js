@@ -9,12 +9,13 @@
 
   /**
    * Add configuration section for bankroll and kelly fraction
-   * Only shows if user is logged in
+   * Shows when user is logged in, or when skipAuthForColumnInject is true (e.g. www.bet-iq.app)
    */
   window.betIQ.addConfigurationSection = function () {
-    // Check if user is logged in - don't show config section if not logged in
-    if (!window.betIQ.auth?.isLoggedIn()) {
-      // Remove config section if it exists and user logged out
+    const config = window.betIQ.getSiteConfig && window.betIQ.getSiteConfig();
+    const skipAuth = config && config.skipAuthForColumnInject === true;
+    const isLoggedIn = window.betIQ.auth?.isLoggedIn();
+    if (!skipAuth && !isLoggedIn) {
       const existingSection = document.getElementById("betiq-config-section");
       if (existingSection) {
         existingSection.remove();
@@ -30,10 +31,25 @@
     // Inject Tailwind CSS
     window.betIQ.injectTailwind();
 
-    // Find target element: main > main > div > div:nth-child(2)
-    const targetElement = document.querySelector(
-      "main > main > div > div:nth-child(2)"
-    );
+    // Find target element from site config, with fallback
+    const selector = config && config.configSectionSelector;
+    let targetElement = selector ? document.querySelector(selector) : null;
+    let insertBeforeTable = false;
+    let tableOrContainer = null;
+    if (!targetElement) {
+      // Fallback: insert before the table/container or at start of main/body
+      tableOrContainer =
+        window.betIQ.getTableOrContainer && window.betIQ.getTableOrContainer();
+      if (tableOrContainer && tableOrContainer.parentNode) {
+        targetElement = tableOrContainer;
+        insertBeforeTable = true;
+      } else {
+        var fallbackSel =
+          (config && config.configSectionFallbackSelector) || "main";
+        var fallbackEl = document.querySelector(fallbackSel);
+        targetElement = fallbackEl || document.body;
+      }
+    }
     if (!targetElement) {
       return;
     }
@@ -73,33 +89,34 @@
       "px-3 py-2 border rounded-md text-sm w-48 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500";
 
     bankrollInput.addEventListener("blur", () => {
-      // Update state (will sync to Supabase)
       const value = bankrollInput.value
         ? parseFloat(bankrollInput.value)
         : null;
       if (window.betIQ.state) {
         window.betIQ.state.set("config.bankroll", value);
-        
-        // Warn if not logged in (data won't sync)
-        // Refresh cache first in case session was restored but cache wasn't updated
+        if (window.betIQ.recalculateStakeAmounts) {
+          window.betIQ.recalculateStakeAmounts();
+        }
         if (window.betIQ.auth?.refreshLoginCache) {
           window.betIQ.auth.refreshLoginCache();
         }
         if (!window.betIQ.auth?.isLoggedIn()) {
-          console.warn("[betIQ-Plugin] ⚠️ You are not logged in. Bankroll will not be saved to Supabase. Please log in to enable sync.");
+          console.warn(
+            "[betIQ-Plugin] ⚠️ You are not logged in. Bankroll will not be saved to Supabase. Please log in to enable sync."
+          );
         }
       }
     });
 
     bankrollInput.addEventListener("input", () => {
-      // Skip if we're updating from state (prevents loops)
       if (window.betIQ.state && !window.betIQ._isUpdatingConfigFromState) {
-        // Update state on input for real-time updates
         const value = bankrollInput.value
           ? parseFloat(bankrollInput.value)
           : null;
         window.betIQ.state.set("config.bankroll", value);
-        console.log("[betIQ-Config] Bankroll input changed:", value);
+        if (window.betIQ.recalculateStakeAmounts) {
+          window.betIQ.recalculateStakeAmounts();
+        }
       }
     });
 
@@ -135,29 +152,30 @@
       "px-3 py-2 border rounded-md text-sm w-48 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500";
 
     kellyInput.addEventListener("blur", () => {
-      // Update state (will sync to Supabase)
       const value = kellyInput.value ? parseFloat(kellyInput.value) : null;
       if (window.betIQ.state) {
         window.betIQ.state.set("config.kellyFraction", value);
-        
-        // Warn if not logged in (data won't sync)
-        // Refresh cache first in case session was restored but cache wasn't updated
+        if (window.betIQ.recalculateStakeAmounts) {
+          window.betIQ.recalculateStakeAmounts();
+        }
         if (window.betIQ.auth?.refreshLoginCache) {
           window.betIQ.auth.refreshLoginCache();
         }
         if (!window.betIQ.auth?.isLoggedIn()) {
-          console.warn("[betIQ-Plugin] ⚠️ You are not logged in. Kelly fraction will not be saved to Supabase. Please log in to enable sync.");
+          console.warn(
+            "[betIQ-Plugin] ⚠️ You are not logged in. Kelly fraction will not be saved to Supabase. Please log in to enable sync."
+          );
         }
       }
     });
 
     kellyInput.addEventListener("input", () => {
-      // Skip if we're updating from state (prevents loops)
       if (window.betIQ.state && !window.betIQ._isUpdatingConfigFromState) {
-        // Update state on input for real-time updates
         const value = kellyInput.value ? parseFloat(kellyInput.value) : null;
         window.betIQ.state.set("config.kellyFraction", value);
-        console.log("[betIQ-Config] Kelly fraction input changed:", value);
+        if (window.betIQ.recalculateStakeAmounts) {
+          window.betIQ.recalculateStakeAmounts();
+        }
       }
     });
 
@@ -231,7 +249,7 @@
       const updateInputsFromState = () => {
         // Set global flag to prevent input events from triggering state updates
         window.betIQ._isUpdatingConfigFromState = true;
-        
+
         const bankroll = window.betIQ.state.get("config.bankroll");
         const kellyFraction = window.betIQ.state.get("config.kellyFraction");
         const debugEnabled = window.betIQ.state.get("config.debugEnabled");
@@ -275,28 +293,48 @@
       updateInputsFromState();
 
       // Subscribe to state changes
-      window.betIQ.state.subscribe((state, changedKeys, newValue, oldValue, options) => {
-        // Only update UI if change came from remote (to avoid loops with local changes)
-        // Local changes (from user typing) will update state, and we don't need to update the input
-        // since the user is already typing in it
-        if (options?.fromRemote) {
-          updateInputsFromState();
+      window.betIQ.state.subscribe(
+        (state, changedKeys, newValue, oldValue, options) => {
+          // Only update UI if change came from remote (to avoid loops with local changes)
+          // Local changes (from user typing) will update state, and we don't need to update the input
+          // since the user is already typing in it
+          if (options?.fromRemote) {
+            updateInputsFromState();
+          }
         }
-      });
+      );
     }
 
     debugContainer.appendChild(debugCheckbox);
     debugContainer.appendChild(debugLabel);
     formContainer.appendChild(debugContainer);
 
-    // Insert after target element
-    if (targetElement.nextSibling) {
-      targetElement.parentNode.insertBefore(
-        configSection,
-        targetElement.nextSibling
-      );
+    // Insert: before table (outside table), or after target element (from selector), or append to main/body
+    if (insertBeforeTable && tableOrContainer && tableOrContainer.parentNode) {
+      const tableElement =
+        tableOrContainer.tagName === "TABLE"
+          ? tableOrContainer
+          : (tableOrContainer.closest && tableOrContainer.closest("table")) ||
+            tableOrContainer.parentNode;
+      if (tableElement && tableElement.parentNode) {
+        tableElement.parentNode.insertBefore(configSection, tableElement);
+      } else {
+        tableOrContainer.parentNode.insertBefore(
+          configSection,
+          tableOrContainer
+        );
+      }
+    } else if (selector && targetElement.parentNode) {
+      if (targetElement.nextSibling) {
+        targetElement.parentNode.insertBefore(
+          configSection,
+          targetElement.nextSibling
+        );
+      } else {
+        targetElement.parentNode.appendChild(configSection);
+      }
     } else {
-      targetElement.parentNode.appendChild(configSection);
+      targetElement.appendChild(configSection);
     }
   };
 

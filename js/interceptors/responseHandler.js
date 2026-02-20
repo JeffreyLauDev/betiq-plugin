@@ -10,7 +10,10 @@
 
   // Initialize with a safe no-op function
   window.betIQ.debouncedGenerateTable = function () {
-    if (debouncedGenerateTable && typeof debouncedGenerateTable === "function") {
+    if (
+      debouncedGenerateTable &&
+      typeof debouncedGenerateTable === "function"
+    ) {
       return debouncedGenerateTable.apply(this, arguments);
     }
   };
@@ -31,11 +34,12 @@
 
   /**
    * Handle intercepted API response
-   * Only processes data if user is logged in
+   * Only processes data if user is logged in (or skipAuthForColumnInject is set for this host)
    */
   window.betIQ.handleAPIResponse = function (data) {
-    // Don't process data if user is not logged in
-    if (!window.betIQ.auth?.isLoggedIn()) {
+    var config = window.betIQ.getSiteConfig && window.betIQ.getSiteConfig();
+    var skipAuth = config && config.skipAuthForColumnInject === true;
+    if (!skipAuth && !window.betIQ.auth?.isLoggedIn()) {
       return;
     }
 
@@ -58,4 +62,3 @@
     }
   };
 })();
-

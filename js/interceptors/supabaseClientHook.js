@@ -29,7 +29,9 @@
           const originalClientFetch = client.fetch;
           client.fetch = function (...args) {
             return originalClientFetch.apply(this, args).then((response) => {
-              if (args[0] && args[0].includes("betting_alerts")) {
+              const urlOrPath = args[0];
+              const isTarget = urlOrPath && window.betIQ && window.betIQ.isTargetEndpointUrl && window.betIQ.isTargetEndpointUrl(typeof urlOrPath === "string" ? urlOrPath : (urlOrPath.url || ""));
+              if (isTarget) {
                 if (window.betiqDebugEnabled) {
                   console.log(
                     "[betIQ-Plugin] 🎯 Supabase client fetch intercepted target endpoint!"

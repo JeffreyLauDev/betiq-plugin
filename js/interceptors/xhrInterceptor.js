@@ -9,18 +9,10 @@
   let xhrCallCount = 0;
 
   /**
-   * Check if URL is our target endpoint
+   * Check if URL is our target endpoint (uses site config)
    */
   function isTargetEndpoint(url) {
-    try {
-      const decodedUrl = decodeURIComponent(url);
-      return (
-        decodedUrl.includes("betting_alerts") ||
-        url.includes("betting_alerts")
-      );
-    } catch (e) {
-      return url.includes("betting_alerts");
-    }
+    return window.betIQ && window.betIQ.isTargetEndpointUrl && window.betIQ.isTargetEndpointUrl(url);
   }
 
   /**

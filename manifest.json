@@ -3,28 +3,25 @@
   "name": "betIQ Table Column Extractor",
   "version": "1.0.0",
   "description": "Extract table column data from betIQ tables",
-  "permissions": [
-    "activeTab",
-    "storage"
-  ],
+  "permissions": ["activeTab", "storage"],
   "host_permissions": [
     "https://betiq.vercel.app/*",
+    "https://www.bet-iq.app/*",
     "https://*.supabase.co/*"
   ],
   "content_scripts": [
     {
-      "matches": ["https://betiq.vercel.app/*"],
-      "js": [
-        "js/storageBridge.js"
-      ],
+      "matches": ["https://betiq.vercel.app/*", "https://www.bet-iq.app/*"],
+      "js": ["js/storageBridge.js"],
       "run_at": "document_start",
       "world": "ISOLATED"
     },
     {
-      "matches": ["https://betiq.vercel.app/*"],
+      "matches": ["https://betiq.vercel.app/*", "https://www.bet-iq.app/*"],
       "js": [
         "js/utils.js",
         "js/config/supabaseConfig.js",
+        "js/config/siteConfig.js",
         "js/storage.js",
         "js/interceptors/responseHandler.js",
         "js/interceptors/fetchInterceptor.js",
@@ -63,4 +60,3 @@
     "service_worker": "background.js"
   }
 }
-

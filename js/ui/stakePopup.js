@@ -146,7 +146,9 @@
       color: #1f2937;
       font-weight: 500;
     `;
-    stakeUsedDisplay.textContent = `$${stakeUsed.toFixed(2)} / $${stakeAllowed.toFixed(2)}`;
+    stakeUsedDisplay.textContent = `$${stakeUsed.toFixed(
+      2
+    )} / $${stakeAllowed.toFixed(2)}`;
     stakeUsedContainer.appendChild(stakeUsedDisplay);
 
     // Progress bar
@@ -234,7 +236,9 @@
     const manualStakeInput = document.createElement("input");
     manualStakeInput.id = `betiq-manual-stake-${betId}`;
     manualStakeInput.type = "number";
-    manualStakeInput.placeholder = `Enter stake amount (max: $${stakeAllowed.toFixed(2)})`;
+    manualStakeInput.placeholder = `Enter stake amount (max: $${stakeAllowed.toFixed(
+      2
+    )})`;
     manualStakeInput.step = "0.01";
     manualStakeInput.min = "0";
     manualStakeInput.max = stakeAllowed > 0 ? stakeAllowed.toString() : "";
@@ -322,7 +326,9 @@
 
       if (window.betIQ.showNotification) {
         window.betIQ.showNotification(
-          `Stake updated: $${stakeValue.toFixed(2)} / $${stakeAllowed.toFixed(2)}`
+          `Stake updated: $${stakeValue.toFixed(2)} / $${stakeAllowed.toFixed(
+            2
+          )}`
         );
       }
       overlay.remove();
@@ -350,4 +356,3 @@
     document.body.appendChild(overlay);
   };
 })();
-

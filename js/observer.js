@@ -15,15 +15,19 @@
    */
   window.betIQ.setupTableObserver = function () {
     // Find table or observe the body for table changes
-    const observeTarget = document.querySelector("table") || document.body;
+    const observeTarget =
+      (window.betIQ.getTableOrContainer &&
+        window.betIQ.getTableOrContainer()) ||
+      document.body;
 
     if (tableObserver) {
       tableObserver.disconnect();
     }
 
     tableObserver = new MutationObserver((mutations) => {
-      // Don't process mutations if user is not logged in
-      if (!window.betIQ.auth?.isLoggedIn()) {
+      var config = window.betIQ.getSiteConfig && window.betIQ.getSiteConfig();
+      var skipAuth = config && config.skipAuthForColumnInject === true;
+      if (!skipAuth && !window.betIQ.auth?.isLoggedIn()) {
         return;
       }
 
@@ -36,24 +40,53 @@
           mutation.removedNodes.length > 0
         ) {
           mutation.addedNodes.forEach((node) => {
+            var sel =
+              window.betIQ.getSiteConfig && window.betIQ.getSiteConfig();
+            var tableOrContainerSel =
+              (sel && (sel.tableContainerSelector || sel.tableSelector)) ||
+              "table";
             if (
               node.nodeType === 1 &&
               (node.tagName === "TABLE" ||
                 node.tagName === "TR" ||
                 node.tagName === "TD" ||
                 node.tagName === "TH" ||
-                node.querySelector?.("table") ||
-                node.querySelector?.("tr"))
+                (node.querySelector &&
+                  (node.querySelector(tableOrContainerSel) ||
+                    (sel &&
+                      sel.allRowsSelector &&
+                      node.querySelector(sel.allRowsSelector)))))
             ) {
               shouldUpdate = true;
             }
-            // Check if target element for config section was added
+            // Check if target element for config section was added (from site config) or table/container added (fallback)
+            var configSel =
+              window.betIQ.getSiteConfig &&
+              window.betIQ.getSiteConfig().configSectionSelector;
             if (
+              configSel &&
               node.nodeType === 1 &&
-              (node.matches?.("main > main > div > div:nth-child(2)") ||
-                node.querySelector?.("main > main > div > div:nth-child(2)"))
+              ((node.matches && node.matches(configSel)) ||
+                (node.querySelector && node.querySelector(configSel)))
             ) {
               window.betIQ.debouncedAddConfigSection();
+            }
+            if (!configSel && node.nodeType === 1) {
+              var c =
+                window.betIQ.getSiteConfig && window.betIQ.getSiteConfig();
+              var containerSel = c && c.tableContainerSelector;
+              var tableSel = c && c.tableSelector;
+              var isTableOrContainer =
+                node.tagName === "TABLE" ||
+                (containerSel && node.matches && node.matches(containerSel)) ||
+                (containerSel && node.id && "#" + node.id === containerSel) ||
+                (tableSel && node.matches && node.matches(tableSel)) ||
+                (node.querySelector &&
+                  ((containerSel && node.querySelector(containerSel)) ||
+                    (tableSel && node.querySelector(tableSel))));
+              if (isTableOrContainer) {
+                window.betIQ.debouncedAddConfigSection();
+              }
             }
           });
 
@@ -85,7 +118,10 @@
             target.tagName === "TH"
           ) {
             // Check if data-id was removed (Next.js re-render might have removed it)
-            if (target.tagName === "TR" && mutation.attributeName === "data-id") {
+            if (
+              target.tagName === "TR" &&
+              mutation.attributeName === "data-id"
+            ) {
               // If a row's data-id was removed, we need to re-apply IDs
               if (
                 window.betIQ.debouncedGenerateTable &&
@@ -134,7 +170,10 @@
           window.betIQ.generateBettingDataTable();
         }
         // Re-initialize selection overlay when table changes (only if logged in)
-        if (window.betIQ.auth?.isLoggedIn() && window.betIQ.initSelectionOverlay) {
+        if (
+          window.betIQ.auth?.isLoggedIn() &&
+          window.betIQ.initSelectionOverlay
+        ) {
           setTimeout(() => {
             window.betIQ.initSelectionOverlay();
           }, 200);

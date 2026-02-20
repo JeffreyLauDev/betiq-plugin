@@ -49,13 +49,11 @@
   }
 
   /**
-   * Check if URL is our target endpoint
+   * Check if URL is our target endpoint (uses site config)
    */
   function isTargetEndpoint(urlString, decodedUrl) {
-    return (
-      (decodedUrl && decodedUrl.includes("betting_alerts")) ||
-      (urlString && urlString.includes("betting_alerts"))
-    );
+    const url = urlString || decodedUrl;
+    return window.betIQ && window.betIQ.isTargetEndpointUrl && window.betIQ.isTargetEndpointUrl(url);
   }
 
   /**

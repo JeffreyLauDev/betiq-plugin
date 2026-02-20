@@ -153,8 +153,7 @@
 
       // Handle different state paths
       if (path === "config.bankroll" || path === "config.kellyFraction") {
-        // For shared bankroll/kelly: Update ALL users' configs when one user updates
-        // This enables real-time shared config across all users
+        // Sync current user's bankroll/kelly to their user_config row (RLS allows only own row)
         const configKey =
           path === "config.bankroll" ? "bankroll" : "kelly_fraction";
 
@@ -209,59 +208,12 @@
           return;
         }
 
-        // Now update ALL other users' configs to match (shared config)
-        // Get all other users (excluding current user to avoid duplicate update)
-        const { data: allUsers, error: usersError } = await client
-          .from("user_config")
-          .select("user_id, bankroll, kelly_fraction")
-          .neq("user_id", finalUserId);
+        // Only current user's row is updated (RLS does not allow updating other users' rows).
+        // If you need shared bankroll/kelly across users, use a server function or a shared_config table with appropriate RLS.
 
-        if (!usersError && allUsers && allUsers.length > 0) {
-          // Update all other users (excluding current user)
-          const updates = allUsers.map((userConfig) => {
-            const updateData = {
-              user_id: userConfig.user_id,
-              [configKey]: value,
-              updated_at: new Date().toISOString(),
-            };
-
-            // Preserve the other field for each user
-            if (path === "config.bankroll") {
-              updateData.kelly_fraction =
-                userConfig.kelly_fraction !== null &&
-                userConfig.kelly_fraction !== undefined
-                  ? userConfig.kelly_fraction
-                  : currentUserUpdateData.kelly_fraction;
-            } else {
-              updateData.bankroll =
-                userConfig.bankroll !== null &&
-                userConfig.bankroll !== undefined
-                  ? userConfig.bankroll
-                  : currentUserUpdateData.bankroll;
-            }
-
-            return updateData;
-          });
-
-          // Batch update all other users
-          const { error: batchError } = await client
-            .from("user_config")
-            .upsert(updates, {
-              onConflict: "user_id",
-            });
-
-          if (batchError) {
-            logger.error(`Error updating all users' ${configKey}:`, batchError);
-          } else {
-            logger.debug(
-              `Updated ${updates.length} other users' ${configKey} to ${value}`
-            );
-          }
-        }
-
-        // Always show success message
+        // Success message
         console.log(
-          `[betIQ-Sync] ✅ Successfully synced ${path} to Supabase (shared across all users):`,
+          `[betIQ-Sync] ✅ Successfully synced ${path} to Supabase:`,
           {
             bankroll:
               path === "config.bankroll"
@@ -686,10 +638,10 @@
           return;
         }
 
-        // Check if sync is initialized
+        // Check if sync is initialized (during auth restore, state is set before sync init completes - skip silently)
         if (!isInitialized) {
-          console.warn(
-            "[betIQ-Sync] ⚠️ Sync not initialized. State changes won't be synced."
+          logger.debug(
+            "[betIQ-Sync] Sync not initialized yet; state change will not be synced (normal during login)."
           );
           return;
         }

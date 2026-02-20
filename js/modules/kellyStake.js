@@ -17,9 +17,9 @@
       return null;
     }
 
-    const evPercentage = betData.ev_percentage;
-    // ONLY use true_odds, no fallback
-    const odds = betData.true_odds;
+    // API may use ev (e.g. live_bets); prefer ev_percentage for Kelly formula
+    const evPercentage = betData.ev_percentage ?? betData.ev;
+    const odds = betData.true_odds ?? betData.odds;
 
     if (
       evPercentage === null ||

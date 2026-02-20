@@ -53,13 +53,28 @@
   };
 
   /**
-   * Test function to verify interception is working
+   * Test function to verify interception is working.
+   * Uses current site's apiInterceptEndpoint and apiInterceptBaseUrl (or supabaseUrl from supabaseConfig).
    */
   window.betIQ.testInterception = function () {
     if (window.betiqDebugEnabled) {
       console.log("[betIQ-Plugin] Testing interception with a test URL");
     }
-    fetch("https://bbvlgmogzngtlzhmvegn.supabase.co/rest/v1/betting_alerts")
+    var config =
+      (window.betIQ.getSiteConfig && window.betIQ.getSiteConfig()) || {};
+    var path = config.apiInterceptEndpoint || "betting_alerts";
+    var base =
+      config.apiInterceptBaseUrl ||
+      (window.betIQ.supabaseUrl &&
+        window.betIQ.supabaseUrl.replace(/\/$/, "") + "/rest");
+    var restBase = (
+      base || "https://swryqkixpqhvuagnqqul.supabase.co/rest"
+    ).replace(/\/$/, "");
+    var testUrl =
+      restBase.slice(-3) === "/v1"
+        ? restBase + "/" + path
+        : restBase + "/v1/" + path;
+    fetch(testUrl)
       .then((response) => {
         if (window.betiqDebugEnabled) {
           console.log("[betIQ-Plugin] Test fetch succeeded:", response.status);

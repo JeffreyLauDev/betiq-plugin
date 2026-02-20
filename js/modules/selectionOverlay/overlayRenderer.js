@@ -13,13 +13,19 @@
    */
   function extractRowData(row) {
     const cells = row.querySelectorAll("td");
-    if (cells.length < 7) {
+    const col =
+      window.betIQ.getSiteConfig && window.betIQ.getSiteConfig().columnIndices
+        ? window.betIQ.getSiteConfig().columnIndices
+        : { game: 3, player: 5, betType: 6 };
+    const minCells =
+      Math.max(col.game || 0, col.player || 0, col.betType || 0) + 1;
+    if (cells.length < minCells) {
       return null;
     }
 
-    const game = (cells[3]?.textContent || "").trim();
-    const player = (cells[5]?.textContent || "").trim();
-    const betType = (cells[6]?.textContent || "").trim();
+    const game = (cells[col.game]?.textContent || "").trim();
+    const player = (cells[col.player]?.textContent || "").trim();
+    const betType = (cells[col.betType]?.textContent || "").trim();
     const betId = row.getAttribute("data-id") || "";
 
     if (!game || !player || !betType) {
@@ -30,28 +36,42 @@
   }
 
   /**
+   * Returns true if the row checkbox is checked. Works with native input[type=checkbox] (.checked)
+   * and with button[role=checkbox] (data-state / aria-checked).
+   */
+  window.betIQ.isRowCheckboxChecked = function (checkbox) {
+    if (!checkbox) return false;
+    if (checkbox.checked === true) return true;
+    return (
+      checkbox.getAttribute("data-state") === "checked" ||
+      checkbox.getAttribute("aria-checked") === "true"
+    );
+  };
+
+  /**
    * Get all selected rows
    */
   function getSelectedRows() {
-    const table = document.querySelector("table");
+    const table =
+      window.betIQ.getTableOrContainer && window.betIQ.getTableOrContainer();
     if (!table) {
       return [];
     }
 
-    const allRows = table.querySelectorAll("tbody tr, table > tr");
+    const allRows = window.betIQ.getDataRows(table);
     const selectedRows = [];
+    const rowCheckboxSel =
+      (window.betIQ.getSiteConfig &&
+        window.betIQ.getSiteConfig().rowCheckboxSelector) ||
+      'button[role="checkbox"]';
 
     allRows.forEach((row) => {
       if (row.querySelectorAll("th").length > 0) {
         return;
       }
 
-      const checkbox = row.querySelector('button[role="checkbox"]');
-      if (
-        checkbox &&
-        (checkbox.getAttribute("data-state") === "checked" ||
-          checkbox.getAttribute("aria-checked") === "true")
-      ) {
+      const checkbox = row.querySelector(rowCheckboxSel);
+      if (checkbox && window.betIQ.isRowCheckboxChecked(checkbox)) {
         selectedRows.push(row);
       }
     });
@@ -716,7 +736,11 @@
           dragState.isDragging = false;
           if (selectionOverlay) {
             selectionOverlay.style.cursor = "";
-            const headerEl = selectionOverlay.querySelector("div:first-child");
+            var overlayHeaderSel =
+              (window.betIQ.getSiteConfig &&
+                window.betIQ.getSiteConfig().selectionOverlayHeaderSelector) ||
+              "div:first-child";
+            const headerEl = selectionOverlay.querySelector(overlayHeaderSel);
             if (headerEl) {
               headerEl.style.cursor = "move";
             }

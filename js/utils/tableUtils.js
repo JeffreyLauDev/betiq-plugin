@@ -24,10 +24,10 @@
   };
 
   /**
-   * Normalize text for comparison (lowercase, trim)
+   * Normalize text for comparison (lowercase, trim, collapse whitespace/newlines)
    */
   window.betIQ.normalizeText = function (text) {
-    return (text || "").toLowerCase().trim();
+    return (text || "").toLowerCase().trim().replace(/\s+/g, " ");
   };
 
   /**
@@ -113,22 +113,28 @@
    */
   function normalizeDateFormat(dateStr) {
     if (!dateStr || !dateStr.includes("/")) return dateStr;
-    
+
     const parts = dateStr.split("/");
     if (parts.length !== 2) return dateStr;
-    
+
     const [part1, part2] = parts;
     const num1 = parseInt(part1, 10);
     const num2 = parseInt(part2, 10);
-    
+
     // If both parts are valid numbers, return both format interpretations
     if (!isNaN(num1) && !isNaN(num2)) {
       return {
-        mmdd: `${String(num1).padStart(2, "0")}/${String(num2).padStart(2, "0")}`,
-        ddmm: `${String(num2).padStart(2, "0")}/${String(num1).padStart(2, "0")}`
+        mmdd: `${String(num1).padStart(2, "0")}/${String(num2).padStart(
+          2,
+          "0"
+        )}`,
+        ddmm: `${String(num2).padStart(2, "0")}/${String(num1).padStart(
+          2,
+          "0"
+        )}`,
       };
     }
-    
+
     return dateStr;
   }
 
@@ -157,37 +163,37 @@
    */
   window.betIQ.compareGameTimes = function (time1, time2) {
     if (!time1 || !time2) return false;
-    
+
     const normalized1 = normalizeTime(time1.trim());
     const normalized2 = normalizeTime(time2.trim());
-    
+
     // Exact match
     if (normalized1 === normalized2) return true;
-    
+
     // Try date format conversion
     const parts1 = normalized1.split(" ");
     const parts2 = normalized2.split(" ");
-    
+
     if (parts1.length === 2 && parts2.length === 2) {
       const date1 = normalizeDateFormat(parts1[0]);
       const date2 = normalizeDateFormat(parts2[0]);
       const time1 = parts1[1];
       const time2 = parts2[1];
-      
+
       // Times must match
       if (time1 !== time2) return false;
-      
+
       // Try both date format interpretations
       if (typeof date1 === "object" && typeof date2 === "object") {
         // Check if any combination matches (MM/DD vs DD/MM)
         return (
-          (date1.mmdd === date2.mmdd) ||
-          (date1.mmdd === date2.ddmm) ||
-          (date1.ddmm === date2.mmdd) ||
-          (date1.ddmm === date2.ddmm)
+          date1.mmdd === date2.mmdd ||
+          date1.mmdd === date2.ddmm ||
+          date1.ddmm === date2.mmdd ||
+          date1.ddmm === date2.ddmm
         );
       }
-      
+
       // If one is object and one is string, try matching
       if (typeof date1 === "object") {
         return date1.mmdd === date2 || date1.ddmm === date2;
@@ -196,8 +202,7 @@
         return date1 === date2.mmdd || date1 === date2.ddmm;
       }
     }
-    
+
     return false;
   };
 })();
-
