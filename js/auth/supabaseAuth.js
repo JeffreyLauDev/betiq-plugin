@@ -971,13 +971,19 @@
               configSection.remove();
             }
             // Remove columns
-            const tables = document.querySelectorAll("table");
+            const tables = window.betIQ.getAllTablesOrContainers
+              ? window.betIQ.getAllTablesOrContainers()
+              : document.querySelectorAll("table");
             tables.forEach((table) => {
-              const betIQCells = table.querySelectorAll(
-                "[data-betiq-column], [data-betiq-cell]"
-              );
+              const betIQCells = table.querySelectorAll
+                ? table.querySelectorAll(
+                    "[data-betiq-column], [data-betiq-cell]"
+                  )
+                : [];
               betIQCells.forEach((cell) => cell.remove());
-              const rows = table.querySelectorAll("tr[data-id]");
+              const rows = table.querySelectorAll
+                ? table.querySelectorAll("tr[data-id]")
+                : [];
               rows.forEach((row) => row.removeAttribute("data-id"));
             });
           } else if (event === "TOKEN_REFRESHED") {

@@ -11,6 +11,14 @@
    * Returns diagnostic information about selector mismatches
    */
   window.betIQ.validateSelectors = function () {
+    var config =
+      (window.betIQ.getSiteConfig && window.betIQ.getSiteConfig()) || {};
+    var headerCellSel = config.headerCellSelector || "th";
+    var dataCellSel = config.dataCellSelector || "td";
+    var rowCellSel = config.rowCellSelector || "td, th";
+    var tbodySel = config.tbodySelector || "tbody";
+    var theadSel = config.theadSelector || "thead";
+
     const diagnostics = {
       isValid: true,
       errors: [],
@@ -20,8 +28,11 @@
       sampleRow: null,
     };
 
-    // Check if table exists
-    const tables = document.querySelectorAll("table");
+    // Check if table/container exists
+    const tables =
+      (window.betIQ.getAllTablesOrContainers &&
+        window.betIQ.getAllTablesOrContainers()) ||
+      [];
     if (tables.length === 0) {
       diagnostics.isValid = false;
       diagnostics.errors.push("❌ No table found on page");
@@ -37,21 +48,22 @@
       );
       diagnostics.tableStructure.allTables = Array.from(tables).map(
         (tbl, idx) => {
-          const rows = tbl.querySelectorAll("tbody tr, table > tr");
-          const dataRows = Array.from(rows).filter((row) => {
-            const hasTh = row.querySelectorAll("th").length > 0;
-            const hasTd = row.querySelectorAll("td").length > 0;
+          const rows = window.betIQ.getDataRows(tbl);
+          const rowArr = Array.isArray(rows) ? rows : Array.from(rows);
+          const dataRows = rowArr.filter((row) => {
+            const hasTh = row.querySelectorAll(headerCellSel).length > 0;
+            const hasTd = row.querySelectorAll(dataCellSel).length > 0;
             return hasTd && !hasTh;
           });
           return {
             index: idx,
             id: tbl.id || "",
             className: tbl.className || "",
-            totalRows: rows.length,
+            totalRows: rowArr.length,
             dataRows: dataRows.length,
             firstRowCellCount:
               dataRows.length > 0
-                ? dataRows[0].querySelectorAll("td").length
+                ? dataRows[0].querySelectorAll(dataCellSel).length
                 : 0,
           };
         }
@@ -62,37 +74,52 @@
     diagnostics.tableStructure.analyzedTable = {
       id: table.id || "",
       className: table.className || "",
-      hasTbody: !!table.querySelector("tbody"),
-      hasThead: !!table.querySelector("thead"),
+      hasTbody: !!table.querySelector && table.querySelector(tbodySel),
+      hasThead: !!table.querySelector && table.querySelector(theadSel),
     };
 
     // Check for data rows - filter out header rows and rows with insufficient cells
-    const allRows = Array.from(table.querySelectorAll("tbody tr, table > tr"));
+    const allRows = Array.from(window.betIQ.getDataRows(table));
 
     const dataRows = allRows.filter((row) => {
-      const hasTh = row.querySelectorAll("th").length > 0;
-      const hasTd = row.querySelectorAll("td").length > 0;
-      const cellCount = row.querySelectorAll("td").length;
+      const hasTh = row.querySelectorAll(headerCellSel).length > 0;
+      const hasTd = row.querySelectorAll(dataCellSel).length > 0;
+      const cellCount = row.querySelectorAll(dataCellSel).length;
       // Filter out header rows and rows with too few cells (likely not data rows)
-      return hasTd && !hasTh && cellCount >= 9;
+      var minCells = window.betIQ.getMinDataRowCells
+        ? window.betIQ.getMinDataRowCells()
+        : 9;
+      return hasTd && !hasTh && cellCount >= minCells;
     });
 
     // Also track rows with insufficient cells for diagnostics
     const invalidRows = allRows.filter((row) => {
-      const hasTh = row.querySelectorAll("th").length > 0;
-      const hasTd = row.querySelectorAll("td").length > 0;
-      const cellCount = row.querySelectorAll("td").length;
-      return hasTd && !hasTh && cellCount > 0 && cellCount < 9;
+      const hasTh = row.querySelectorAll(headerCellSel).length > 0;
+      const hasTd = row.querySelectorAll(dataCellSel).length > 0;
+      const cellCount = row.querySelectorAll(dataCellSel).length;
+      var minCells = window.betIQ.getMinDataRowCells
+        ? window.betIQ.getMinDataRowCells()
+        : 9;
+      return hasTd && !hasTh && cellCount > 0 && cellCount < minCells;
     });
 
+    var minCells = window.betIQ.getMinDataRowCells
+      ? window.betIQ.getMinDataRowCells()
+      : 9;
     if (dataRows.length === 0) {
       diagnostics.isValid = false;
       diagnostics.errors.push(
-        "❌ No valid data rows found in table (need at least 9 cells)"
+        "❌ No valid data rows found in table (need at least " +
+          minCells +
+          " cells)"
       );
       if (invalidRows.length > 0) {
         diagnostics.warnings.push(
-          `⚠️ Found ${invalidRows.length} row(s) with insufficient cells (< 9 cells) - these may be spacer/empty rows`
+          "⚠️ Found " +
+            invalidRows.length +
+            " row(s) with insufficient cells (< " +
+            minCells +
+            " cells) - these may be spacer/empty rows"
         );
       }
       return diagnostics;
@@ -100,7 +127,11 @@
 
     if (invalidRows.length > 0) {
       diagnostics.warnings.push(
-        `⚠️ Found ${invalidRows.length} row(s) with insufficient cells (< 9 cells) - these are being skipped`
+        "⚠️ Found " +
+          invalidRows.length +
+          " row(s) with insufficient cells (< " +
+          minCells +
+          " cells) - these are being skipped"
       );
     }
 
@@ -114,8 +145,8 @@
     // Get detailed info about all rows to understand structure
     diagnostics.tableStructure.allRowsInfo = [];
     dataRows.slice(0, 5).forEach((row, idx) => {
-      const rowCells = row.querySelectorAll("td");
-      const rowThs = row.querySelectorAll("th");
+      const rowCells = row.querySelectorAll(dataCellSel);
+      const rowThs = row.querySelectorAll(headerCellSel);
       const allCells = Array.from(rowCells).map((cell, i) => ({
         index: i,
         tag: cell.tagName,
@@ -136,7 +167,7 @@
     });
 
     // Validate cell indices
-    const cells = sampleRow.querySelectorAll("td");
+    const cells = sampleRow.querySelectorAll(dataCellSel);
     const cellCount = cells.length;
     diagnostics.cellIndices.actualCount = cellCount;
 
@@ -149,9 +180,16 @@
     }));
 
     // Also check table headers to understand column structure
-    const headerRow = table.querySelector("thead tr, tr:first-child");
+    var headerRowSel = config.headerRowSelector;
+    var rootForHeader =
+      table.tagName === "TABLE" ? table : table.parentElement || table;
+    var headerSel = headerRowSel;
+    const headerRow =
+      rootForHeader && headerSel
+        ? rootForHeader.querySelector(headerSel)
+        : null;
     if (headerRow) {
-      const headerCells = headerRow.querySelectorAll("th, td");
+      const headerCells = headerRow.querySelectorAll(rowCellSel);
       diagnostics.tableStructure.headers = Array.from(headerCells).map(
         (cell, i) => ({
           index: i,
@@ -160,15 +198,25 @@
       );
     }
 
-    // Expected cell indices based on rowMatcher.js
-    const expectedCells = {
-      3: { name: "Game", required: true },
-      4: { name: "Game Time", required: false },
-      5: { name: "Player", required: true },
-      6: { name: "Bet Type", required: false },
-      8: { name: "Prop", required: true },
-      18: { name: "Confidence", required: false },
+    // Expected cell indices from site config (so 13-column tables don't warn about index 18)
+    var col = config.columnIndices || {
+      game: 3,
+      gameTime: 4,
+      player: 5,
+      betType: 6,
+      prop: 8,
+      confidence: 18,
     };
+    const expectedCells = {
+      [col.game]: { name: "Game", required: true },
+      [col.gameTime]: { name: "Game Time", required: false },
+      [col.player]: { name: "Player", required: true },
+      [col.betType]: { name: "Bet Type", required: false },
+      [col.prop]: { name: "Prop", required: true },
+    };
+    if (col.confidence != null) {
+      expectedCells[col.confidence] = { name: "Confidence", required: false };
+    }
 
     diagnostics.cellIndices.expected = expectedCells;
     diagnostics.cellIndices.missing = [];
@@ -223,29 +271,36 @@
       );
     }
 
-    // Validate checkbox selector (for selection overlay)
-    const checkbox = sampleRow.querySelector('button[role="checkbox"]');
-    if (!checkbox) {
+    // Validate checkbox selector (for selection overlay) - only warn if site uses overlay and selector is missing
+    var rowCheckboxSel =
+      config.rowCheckboxSelector || 'button[role="checkbox"]';
+    const checkbox = sampleRow.querySelector(rowCheckboxSel);
+    if (!checkbox && config.rowCheckboxSelector != null) {
       diagnostics.warnings.push(
-        "⚠️ Checkbox selector not found: button[role='checkbox']"
+        "⚠️ Checkbox selector not found: " + rowCheckboxSel
       );
     }
 
     // Sample data from first few rows
     diagnostics.sampleData = [];
+    var minCells = window.betIQ.getMinDataRowCells
+      ? window.betIQ.getMinDataRowCells()
+      : 9;
+    var col = config.columnIndices;
+    if (!col) col = { game: 3, gameTime: 4, player: 5, betType: 6, prop: 8 };
     dataRows.slice(0, 3).forEach((row, idx) => {
-      const rowCells = row.querySelectorAll("td");
-      if (rowCells.length >= 9) {
+      const rowCells = row.querySelectorAll(dataCellSel);
+      if (rowCells.length >= minCells) {
         const extractCellText =
           window.betIQ.extractCellText || ((cell) => cell?.textContent || "");
         diagnostics.sampleData.push({
           rowIndex: idx,
           cellCount: rowCells.length,
-          game: extractCellText(rowCells[3]),
-          player: extractCellText(rowCells[5]),
-          prop: extractCellText(rowCells[8]),
-          betType: extractCellText(rowCells[6]),
-          gameTime: extractCellText(rowCells[4]),
+          game: extractCellText(rowCells[col.game]),
+          player: extractCellText(rowCells[col.player]),
+          prop: extractCellText(rowCells[col.prop]),
+          betType: extractCellText(rowCells[col.betType]),
+          gameTime: extractCellText(rowCells[col.gameTime]),
         });
       }
     });
@@ -258,21 +313,37 @@
    * Useful for identifying which columns contain bookie, line, odds, etc.
    */
   window.betIQ.inspectTableColumns = function () {
-    const tables = document.querySelectorAll("table");
+    var config =
+      (window.betIQ.getSiteConfig && window.betIQ.getSiteConfig()) || {};
+    var headerCellSel = config.headerCellSelector || "th";
+    var dataCellSel = config.dataCellSelector || "td";
+    var rowCellSel = config.rowCellSelector || "td, th";
+
+    const tables =
+      (window.betIQ.getAllTablesOrContainers &&
+        window.betIQ.getAllTablesOrContainers()) ||
+      [];
     if (tables.length === 0) {
       console.error("[betIQ-Plugin] No tables found");
       return null;
     }
 
     const table = tables[0];
-    const headerRow = table.querySelector("thead tr, tr:first-child");
-    const dataRows = Array.from(
-      table.querySelectorAll("tbody tr, table > tr")
-    ).filter((row) => {
-      const hasTh = row.querySelectorAll("th").length > 0;
-      const hasTd = row.querySelectorAll("td").length > 0;
-      return hasTd && !hasTh;
-    });
+    var headerRowSel = config.headerRowSelector;
+    var rootForHeader =
+      table.tagName === "TABLE" ? table : table.parentElement || table;
+    var headerSel = headerRowSel;
+    const headerRow =
+      rootForHeader && headerSel
+        ? rootForHeader.querySelector(headerSel)
+        : null;
+    const dataRows = Array.from(window.betIQ.getDataRows(table)).filter(
+      (row) => {
+        const hasTh = row.querySelectorAll(headerCellSel).length > 0;
+        const hasTd = row.querySelectorAll(dataCellSel).length > 0;
+        return hasTd && !hasTh;
+      }
+    );
 
     const extractCellText =
       window.betIQ.extractCellText ||
@@ -286,7 +357,7 @@
 
     // Get headers
     if (headerRow) {
-      const headers = headerRow.querySelectorAll("th, td");
+      const headers = headerRow.querySelectorAll(rowCellSel);
       report.headerRow = Array.from(headers).map((cell, idx) => ({
         index: idx,
         text: extractCellText(cell),
@@ -296,7 +367,7 @@
 
     // Get sample data from first 3 rows
     dataRows.slice(0, 3).forEach((row, rowIdx) => {
-      const cells = row.querySelectorAll("td");
+      const cells = row.querySelectorAll(dataCellSel);
       const rowData = {
         rowIndex: rowIdx,
         cells: Array.from(cells).map((cell, idx) => ({
@@ -336,8 +407,16 @@
    * @param {HTMLElement|number} rowOrIndex - The row element or index of unmatched row (0-based)
    */
   window.betIQ.testRowMatching = function (rowOrIndex) {
+    var config =
+      (window.betIQ.getSiteConfig && window.betIQ.getSiteConfig()) || {};
+    var headerCellSel = config.headerCellSelector || "th";
+    var dataCellSel = config.dataCellSelector || "td";
+
     const capturedBettingData = window.betIQ.getCapturedBettingData();
-    const tables = document.querySelectorAll("table");
+    const tables =
+      (window.betIQ.getAllTablesOrContainers &&
+        window.betIQ.getAllTablesOrContainers()) ||
+      [];
 
     if (tables.length === 0) {
       console.error("[betIQ-Plugin] No tables found");
@@ -345,13 +424,16 @@
     }
 
     const table = tables[0];
-    const allRows = Array.from(table.querySelectorAll("tbody tr, table > tr"));
+    const allRows = Array.from(window.betIQ.getDataRows(table));
     const unmatchedRows = allRows.filter((row) => {
-      const hasTh = row.querySelectorAll("th").length > 0;
-      const hasTd = row.querySelectorAll("td").length > 0;
-      const cellCount = row.querySelectorAll("td").length;
+      const hasTh = row.querySelectorAll(headerCellSel).length > 0;
+      const hasTd = row.querySelectorAll(dataCellSel).length > 0;
+      const cellCount = row.querySelectorAll(dataCellSel).length;
       const hasId = row.getAttribute("data-id") || row.id;
-      return hasTd && !hasTh && cellCount >= 9 && !hasId;
+      var minC = window.betIQ.getMinDataRowCells
+        ? window.betIQ.getMinDataRowCells()
+        : 9;
+      return hasTd && !hasTh && cellCount >= minC && !hasId;
     });
 
     let testRow;
@@ -375,26 +457,34 @@
     console.group("[betIQ-Plugin] Testing Row Matching");
 
     // Extract row data
-    const cells = testRow.querySelectorAll("td");
+    const cells = testRow.querySelectorAll(dataCellSel);
     const extractCellText =
       window.betIQ.extractCellText ||
       ((cell) => (cell?.textContent || "").trim());
     const normalizeText =
       window.betIQ.normalizeText ||
       ((text) => (text || "").toLowerCase().trim());
+    const col = (window.betIQ.getSiteConfig &&
+      window.betIQ.getSiteConfig().columnIndices) || {
+      game: 3,
+      gameTime: 4,
+      player: 5,
+      betType: 6,
+      prop: 8,
+    };
 
     const rowData = {
-      game: extractCellText(cells[3]),
-      player: extractCellText(cells[5]),
-      prop: extractCellText(cells[8]),
-      betType: extractCellText(cells[6]),
-      gameTime: extractCellText(cells[4]),
+      game: extractCellText(cells[col.game]),
+      player: extractCellText(cells[col.player]),
+      prop: extractCellText(cells[col.prop]),
+      betType: extractCellText(cells[col.betType]),
+      gameTime: extractCellText(cells[col.gameTime]),
       normalized: {
-        game: normalizeText(extractCellText(cells[3])),
-        player: normalizeText(extractCellText(cells[5])),
-        prop: normalizeText(extractCellText(cells[8])),
-        betType: normalizeText(extractCellText(cells[6])),
-        gameTime: normalizeText(extractCellText(cells[4])),
+        game: normalizeText(extractCellText(cells[col.game])),
+        player: normalizeText(extractCellText(cells[col.player])),
+        prop: normalizeText(extractCellText(cells[col.prop])),
+        betType: normalizeText(extractCellText(cells[col.betType])),
+        gameTime: normalizeText(extractCellText(cells[col.gameTime])),
       },
     };
 
@@ -433,23 +523,34 @@
    * Returns detailed analysis of each unmatched row
    */
   window.betIQ.debugUnmatchedRows = function () {
+    var config =
+      (window.betIQ.getSiteConfig && window.betIQ.getSiteConfig()) || {};
+    var headerCellSel = config.headerCellSelector || "th";
+    var dataCellSel = config.dataCellSelector || "td";
+
     const capturedBettingData = window.betIQ.getCapturedBettingData();
-    const tables = document.querySelectorAll("table");
+    const tables =
+      (window.betIQ.getAllTablesOrContainers &&
+        window.betIQ.getAllTablesOrContainers()) ||
+      [];
 
     if (tables.length === 0) {
       return null;
     }
 
     const table = tables[0];
-    const allRows = Array.from(table.querySelectorAll("tbody tr, table > tr"));
+    const allRows = Array.from(window.betIQ.getDataRows(table));
 
     // Get all rows without IDs
     const unmatchedRows = allRows.filter((row) => {
-      const hasTh = row.querySelectorAll("th").length > 0;
-      const hasTd = row.querySelectorAll("td").length > 0;
-      const cellCount = row.querySelectorAll("td").length;
+      const hasTh = row.querySelectorAll(headerCellSel).length > 0;
+      const hasTd = row.querySelectorAll(dataCellSel).length > 0;
+      const cellCount = row.querySelectorAll(dataCellSel).length;
       const hasId = row.getAttribute("data-id") || row.id;
-      return hasTd && !hasTh && cellCount >= 9 && !hasId;
+      var minC = window.betIQ.getMinDataRowCells
+        ? window.betIQ.getMinDataRowCells()
+        : 9;
+      return hasTd && !hasTh && cellCount >= minC && !hasId;
     });
 
     // Silent analysis - no console spam, just return data
@@ -475,29 +576,74 @@
       },
     };
 
+    const col = config.columnIndices || {
+      game: 3,
+      gameTime: 4,
+      player: 5,
+      betType: 6,
+      prop: 8,
+      bookieIndices: [1],
+    };
+    const bookieIndices = col.bookieIndices || [1];
     unmatchedRows.forEach((row, rowIdx) => {
-      const cells = row.querySelectorAll("td");
-      const game = normalizeText(extractCellText(cells[3]));
-      const player = normalizeText(extractCellText(cells[5]));
-      const prop = normalizeText(extractCellText(cells[8]));
-      const betType = normalizeText(extractCellText(cells[6]));
-      const gameTime = normalizeGameTime(extractCellText(cells[4]));
+      const cells = row.querySelectorAll(dataCellSel);
+      const game = normalizeText(extractCellText(cells[col.game]));
+      const player = normalizeText(extractCellText(cells[col.player]));
+      const prop = normalizeText(extractCellText(cells[col.prop]));
+      const betType = normalizeText(extractCellText(cells[col.betType]));
+      const gameTime = normalizeGameTime(extractCellText(cells[col.gameTime]));
+      let tableBookie = null;
+      for (const idx of bookieIndices) {
+        if (idx < cells.length) {
+          const t = normalizeText(extractCellText(cells[idx]));
+          if (t) {
+            tableBookie = t;
+            break;
+          }
+        }
+      }
 
       const rowData = {
         rowIndex: rowIdx,
-        game: extractCellText(cells[3]),
-        player: extractCellText(cells[5]),
-        prop: extractCellText(cells[8]),
-        betType: extractCellText(cells[6]),
-        gameTime: extractCellText(cells[4]),
+        game: extractCellText(cells[col.game]),
+        player: extractCellText(cells[col.player]),
+        prop: extractCellText(cells[col.prop]),
+        betType: extractCellText(cells[col.betType]),
+        gameTime: extractCellText(cells[col.gameTime]),
         normalized: { game, player, prop, betType, gameTime },
+        tableBookie,
       };
+
+      // Skip rows where game or prop is empty (player may be empty for game/team totals)
+      if (!game || !prop) {
+        return; // Skip this row - table data not loaded yet
+      }
 
       // Try to find matches in API data
       const potentialMatches = [];
       let perfectMatch = null;
       let closestMatch = null;
       let closestScore = 0;
+
+      const apiBookieNorm = (b) =>
+        normalizeText(
+          b.bookie ||
+            b.bookmaker ||
+            b.book ||
+            (b.book_id != null ? String(b.book_id) : "")
+        );
+      const bookieMatch = (tb, ab) =>
+        !tb && !ab
+          ? true
+          : !tb || !ab
+          ? false
+          : tb === ab || tb.includes(ab) || ab.includes(tb);
+      const betTypeMatch = (tb, ab) =>
+        !tb && !ab
+          ? true
+          : !tb || !ab
+          ? false
+          : tb === ab || tb.includes(ab) || ab.includes(tb);
 
       capturedBettingData.forEach((bet, betIdx) => {
         const apiGame = normalizeText(
@@ -511,6 +657,10 @@
         );
         const apiBetType = getAPIBetType(bet);
         const apiGameTime = normalizeAPIGameTime(bet);
+        const apiBookie = apiBookieNorm(bet);
+
+        const betTypeOk = betTypeMatch(betType, apiBetType);
+        const bookieOk = bookieMatch(tableBookie, apiBookie);
 
         // Calculate match score
         let score = 0;
@@ -518,7 +668,8 @@
           game: apiGame === game,
           player: apiPlayer === player,
           prop: apiProp === prop,
-          betType: apiBetType === betType,
+          betType: betTypeOk,
+          bookie: bookieOk,
           gameTime:
             gameTime && apiGameTime
               ? gameTime === apiGameTime ||
@@ -531,10 +682,17 @@
         if (matchDetails.player) score += 3;
         if (matchDetails.prop) score += 3;
         if (matchDetails.betType) score += 1;
+        if (matchDetails.bookie) score += 1;
         if (matchDetails.gameTime === true) score += 1;
 
-        // Perfect match (required fields)
-        if (matchDetails.game && matchDetails.player && matchDetails.prop) {
+        // Perfect match = same as rowMatcher: game, player, prop, betType, and bookie must all match
+        if (
+          matchDetails.game &&
+          matchDetails.player &&
+          matchDetails.prop &&
+          matchDetails.betType &&
+          matchDetails.bookie
+        ) {
           if (!perfectMatch || score > perfectMatch.score) {
             perfectMatch = {
               bet,
@@ -547,6 +705,7 @@
               apiProp,
               apiBetType,
               apiGameTime,
+              apiBookie,
             };
           }
           potentialMatches.push({
@@ -609,8 +768,16 @@
    * Helps identify why rows aren't matching
    */
   window.betIQ.diagnoseMatching = function () {
+    var config =
+      (window.betIQ.getSiteConfig && window.betIQ.getSiteConfig()) || {};
+    var headerCellSel = config.headerCellSelector || "th";
+    var dataCellSel = config.dataCellSelector || "td";
+
     const capturedBettingData = window.betIQ.getCapturedBettingData();
-    const tables = document.querySelectorAll("table");
+    const tables =
+      (window.betIQ.getAllTablesOrContainers &&
+        window.betIQ.getAllTablesOrContainers()) ||
+      [];
 
     const report = {
       apiDataCount: capturedBettingData.length,
@@ -651,19 +818,26 @@
     // Get sample table rows
     if (tables.length > 0) {
       const table = tables[0];
-      const dataRows = Array.from(
-        table.querySelectorAll("tbody tr, table > tr")
-      ).filter((row) => {
-        const hasTh = row.querySelectorAll("th").length > 0;
-        const hasTd = row.querySelectorAll("td").length > 0;
-        return hasTd && !hasTh;
-      });
+      const dataRows = Array.from(window.betIQ.getDataRows(table)).filter(
+        (row) => {
+          const hasTh = row.querySelectorAll(headerCellSel).length > 0;
+          const hasTd = row.querySelectorAll(dataCellSel).length > 0;
+          return hasTd && !hasTh;
+        }
+      );
 
       report.tableRowCount = dataRows.length;
 
       // Extract data from first 3 rows
+      const col = config.columnIndices || {
+        game: 3,
+        gameTime: 4,
+        player: 5,
+        betType: 6,
+        prop: 8,
+      };
       dataRows.slice(0, 3).forEach((row, idx) => {
-        const cells = row.querySelectorAll("td");
+        const cells = row.querySelectorAll(dataCellSel);
         const extractCellText =
           window.betIQ.extractCellText ||
           ((cell) => (cell?.textContent || "").trim());
@@ -672,15 +846,25 @@
           rowIndex: idx,
           cellCount: cells.length,
           game:
-            cells.length > 3 ? extractCellText(cells[3]) : "(cell[3] missing)",
+            cells.length > col.game
+              ? extractCellText(cells[col.game])
+              : "(cell missing)",
           player:
-            cells.length > 5 ? extractCellText(cells[5]) : "(cell[5] missing)",
+            cells.length > col.player
+              ? extractCellText(cells[col.player])
+              : "(cell missing)",
           prop:
-            cells.length > 8 ? extractCellText(cells[8]) : "(cell[8] missing)",
+            cells.length > col.prop
+              ? extractCellText(cells[col.prop])
+              : "(cell missing)",
           betType:
-            cells.length > 6 ? extractCellText(cells[6]) : "(cell[6] missing)",
+            cells.length > col.betType
+              ? extractCellText(cells[col.betType])
+              : "(cell missing)",
           gameTime:
-            cells.length > 4 ? extractCellText(cells[4]) : "(cell[4] missing)",
+            cells.length > col.gameTime
+              ? extractCellText(cells[col.gameTime])
+              : "(cell missing)",
           hasDataId: !!row.getAttribute("data-id"),
           dataId: row.getAttribute("data-id") || null,
         });
@@ -689,7 +873,7 @@
       // Test matching on first row if we have API data
       if (dataRows.length > 0 && capturedBettingData.length > 0) {
         const testRow = dataRows[0];
-        const cells = testRow.querySelectorAll("td");
+        const cells = testRow.querySelectorAll(dataCellSel);
 
         // Extract normalized values from table row
         const extractCellText =
@@ -704,14 +888,58 @@
           window.betIQ.normalizeAPIGameTime || (() => "");
         const getAPIBetType = window.betIQ.getAPIBetType || (() => "");
 
-        const tableGame = normalizeText(extractCellText(cells[3]));
-        const tablePlayer = normalizeText(extractCellText(cells[5]));
-        const tableProp = normalizeText(extractCellText(cells[8]));
-        const tableBetType = normalizeText(extractCellText(cells[6]));
-        const tableGameTime = normalizeGameTime(extractCellText(cells[4]));
+        const colDiag = (window.betIQ.getSiteConfig &&
+          window.betIQ.getSiteConfig().columnIndices) || {
+          game: 3,
+          gameTime: 4,
+          player: 5,
+          betType: 6,
+          prop: 8,
+        };
+        const tableGame = normalizeText(extractCellText(cells[colDiag.game]));
+        const tablePlayer = normalizeText(
+          extractCellText(cells[colDiag.player])
+        );
+        const tableProp = normalizeText(extractCellText(cells[colDiag.prop]));
+        const tableBetType = normalizeText(
+          extractCellText(cells[colDiag.betType])
+        );
+        const tableGameTime = normalizeGameTime(
+          extractCellText(cells[colDiag.gameTime])
+        );
+        const bookieIndicesDiag = colDiag.bookieIndices || [1];
+        let tableBookieDiag = null;
+        for (const bi of bookieIndicesDiag) {
+          if (bi < cells.length) {
+            const t = normalizeText(extractCellText(cells[bi]));
+            if (t) {
+              tableBookieDiag = t;
+              break;
+            }
+          }
+        }
+        const apiBookieNorm = (b) =>
+          normalizeText(
+            b.bookie ||
+              b.bookmaker ||
+              b.book ||
+              (b.book_id != null ? String(b.book_id) : "")
+          );
+        const bookieMatchDiag = (tb, ab) =>
+          !tb && !ab
+            ? true
+            : !tb || !ab
+            ? false
+            : tb === ab || tb.includes(ab) || ab.includes(tb);
+        const betTypeMatchDiag = (tb, ab) =>
+          !tb && !ab
+            ? true
+            : !tb || !ab
+            ? false
+            : tb === ab || tb.includes(ab) || ab.includes(tb);
 
         // Try to find a match manually to see why it fails
-        // Check ALL records, not just first 10
+        // Check ALL records, not just first 10 (use same rules as rowMatcher: game, player, prop, betType, bookie)
         let closestMatch = null;
         let closestMatchScore = 0;
         const matchDetails = [];
@@ -731,12 +959,17 @@
           );
           const apiBetType = getAPIBetType(bet);
           const apiGameTime = normalizeAPIGameTime(bet);
+          const apiBookie = apiBookieNorm(bet);
+          const betTypeOk = betTypeMatchDiag(tableBetType, apiBetType);
+          const bookieOk = bookieMatchDiag(tableBookieDiag, apiBookie);
 
-          // Check for perfect match (required fields)
+          // Perfect match = same as rowMatcher: game, player, prop, betType, bookie
           if (
             apiGame === tableGame &&
             apiPlayer === tablePlayer &&
-            apiProp === tableProp
+            apiProp === tableProp &&
+            betTypeOk &&
+            bookieOk
           ) {
             perfectMatches++;
             matchDetails.push({
@@ -747,10 +980,12 @@
               apiPlayer,
               apiProp,
               apiBetType,
+              apiBookie,
               apiGameTime,
               tableGameTime: tableGameTime,
               gameTimeMatch: apiGameTime === tableGameTime,
-              betTypeMatch: apiBetType === tableBetType,
+              betTypeMatch: betTypeOk,
+              bookieMatch: bookieOk,
             });
           }
         });
@@ -769,6 +1004,7 @@
             );
             const apiBetType = getAPIBetType(bet);
             const apiGameTime = normalizeAPIGameTime(bet);
+            const apiBookie = apiBookieNorm(bet);
 
             let score = 0;
             const reasons = [];
@@ -793,11 +1029,19 @@
               reasons.push(`Prop mismatch: "${apiProp}" vs "${tableProp}"`);
             }
 
-            if (apiBetType === tableBetType) {
+            if (betTypeMatchDiag(tableBetType, apiBetType)) {
               score += 1;
             } else {
               reasons.push(
                 `BetType mismatch: "${apiBetType}" vs "${tableBetType}"`
+              );
+            }
+
+            if (bookieMatchDiag(tableBookieDiag, apiBookie)) {
+              score += 1;
+            } else {
+              reasons.push(
+                `Bookie mismatch: "${tableBookieDiag || ""}" vs "${apiBookie}"`
               );
             }
 
@@ -848,6 +1092,7 @@
             prop: tableProp,
             betType: tableBetType,
             gameTime: tableGameTime,
+            tableBookie: tableBookieDiag || null,
           },
           perfectMatches: perfectMatches,
           matchDetails: matchDetails,
@@ -1019,20 +1264,29 @@
    * Returns detailed information about all tables and rows on the page
    */
   window.betIQ.inspectTableStructure = function () {
-    const tables = document.querySelectorAll("table");
+    var config =
+      (window.betIQ.getSiteConfig && window.betIQ.getSiteConfig()) || {};
+    var headerCellSel = config.headerCellSelector || "th";
+    var dataCellSel = config.dataCellSelector || "td";
+
+    const tables =
+      (window.betIQ.getAllTablesOrContainers &&
+        window.betIQ.getAllTablesOrContainers()) ||
+      [];
     const report = {
       tableCount: tables.length,
       tables: [],
     };
 
     tables.forEach((table, tableIdx) => {
-      const allRows = table.querySelectorAll("tbody tr, table > tr");
-      const headerRows = Array.from(allRows).filter((row) => {
-        return row.querySelectorAll("th").length > 0;
+      const allRows = window.betIQ.getDataRows(table);
+      const allRowsArr = Array.isArray(allRows) ? allRows : Array.from(allRows);
+      const headerRows = allRowsArr.filter((row) => {
+        return row.querySelectorAll(headerCellSel).length > 0;
       });
-      const dataRows = Array.from(allRows).filter((row) => {
-        const hasTh = row.querySelectorAll("th").length > 0;
-        const hasTd = row.querySelectorAll("td").length > 0;
+      const dataRows = allRowsArr.filter((row) => {
+        const hasTh = row.querySelectorAll(headerCellSel).length > 0;
+        const hasTd = row.querySelectorAll(dataCellSel).length > 0;
         return hasTd && !hasTh;
       });
 
@@ -1040,8 +1294,8 @@
         index: tableIdx,
         id: table.id || "",
         className: table.className || "",
-        selector: `document.querySelectorAll('table')[${tableIdx}]`,
-        totalRows: allRows.length,
+        selector: "getAllTablesOrContainers()[" + tableIdx + "]",
+        totalRows: allRowsArr.length,
         headerRows: headerRows.length,
         dataRows: dataRows.length,
         sampleDataRows: [],
@@ -1049,7 +1303,7 @@
 
       // Analyze first 3 data rows
       dataRows.slice(0, 3).forEach((row, rowIdx) => {
-        const cells = row.querySelectorAll("td");
+        const cells = row.querySelectorAll(dataCellSel);
         const cellData = Array.from(cells).map((cell, cellIdx) => ({
           index: cellIdx,
           text: (cell.textContent || "").trim(),
@@ -1188,12 +1442,31 @@
    * Only works if user is logged in
    */
   window.betIQ.generateBettingDataTable = function () {
-    // Check if user is logged in - don't generate table if not logged in
-    if (!window.betIQ.auth?.isLoggedIn()) {
-      // Remove all data-id attributes if user logged out
-      const tables = document.querySelectorAll("table");
+    var config =
+      (window.betIQ.getSiteConfig && window.betIQ.getSiteConfig()) || {};
+    var headerCellSel = config.headerCellSelector || "th";
+    var dataCellSel = config.dataCellSelector || "td";
+    var idCellSel =
+      (config.betiqSelectors && config.betiqSelectors.idCell) ||
+      "[data-betiq-cell='id']";
+    var dataIdRowSel = config.dataIdRowSelector || "tr[data-id]";
+    var duplicateErrorId =
+      config.duplicateIdErrorElementId || "betiq-duplicate-id-error";
+
+    // Check if user is logged in - don't generate table if not logged in (unless skipAuthForColumnInject)
+    var skipAuth = config.skipAuthForColumnInject === true;
+    if (!skipAuth && !window.betIQ.auth?.isLoggedIn()) {
+      if (window.betIQ.addKellyStakeColumn) {
+        window.betIQ.addKellyStakeColumn();
+      }
+      const tables =
+        (window.betIQ.getAllTablesOrContainers &&
+          window.betIQ.getAllTablesOrContainers()) ||
+        [];
       tables.forEach((table) => {
-        const rows = table.querySelectorAll("tr[data-id]");
+        const rows = table.querySelectorAll
+          ? table.querySelectorAll(dataIdRowSel)
+          : [];
         rows.forEach((row) => {
           row.removeAttribute("data-id");
         });
@@ -1207,9 +1480,21 @@
       return;
     }
 
-    const tables = document.querySelectorAll("table");
+    const tables =
+      (window.betIQ.getAllTablesOrContainers &&
+        window.betIQ.getAllTablesOrContainers()) ||
+      [];
     if (tables.length === 0) {
       return;
+    }
+
+    // Ensure config section (bankroll, kelly fraction) is injected so Stake Allowed can be calculated
+    if (window.betIQ.debouncedAddConfigSection) {
+      window.betIQ.debouncedAddConfigSection();
+    }
+    // Ensure plugin columns (Kelly, Allocation, Monitor, ID) are injected before matching/ID assignment
+    if (window.betIQ.addKellyStakeColumn) {
+      window.betIQ.addKellyStakeColumn();
     }
 
     // Run selector validation on first call or when errors occur
@@ -1227,15 +1512,18 @@
     let totalDataRows = 0;
 
     tables.forEach((table) => {
-      const dataRows = Array.from(
-        table.querySelectorAll("tbody tr, table > tr")
-      ).filter((row) => {
-        const hasTh = row.querySelectorAll("th").length > 0;
-        const hasTd = row.querySelectorAll("td").length > 0;
-        const cellCount = row.querySelectorAll("td").length;
-        // Filter out header rows and rows with insufficient cells (< 9 required for matching)
-        return hasTd && !hasTh && cellCount >= 9;
-      });
+      const dataRows = Array.from(window.betIQ.getDataRows(table)).filter(
+        (row) => {
+          const hasTh = row.querySelectorAll(headerCellSel).length > 0;
+          const hasTd = row.querySelectorAll(dataCellSel).length > 0;
+          const cellCount = row.querySelectorAll(dataCellSel).length;
+          // Filter out header rows and rows with insufficient cells (< 9 required for matching)
+          var minC = window.betIQ.getMinDataRowCells
+            ? window.betIQ.getMinDataRowCells()
+            : 9;
+          return hasTd && !hasTh && cellCount >= minC;
+        }
+      );
 
       totalDataRows += dataRows.length;
 
@@ -1255,7 +1543,7 @@
           }
 
           // Update ID cell if it exists
-          const idCell = row.querySelector("[data-betiq-cell='id']");
+          const idCell = row.querySelector(idCellSel);
           if (idCell && existingId) {
             updateIdCell(idCell, existingId, row);
           }
@@ -1271,6 +1559,7 @@
           const betId =
             matchedBet.bet_id ||
             matchedBet.id ||
+            matchedBet.bet_key ||
             (matchedBet.game && matchedBet.player && matchedBet.prop
               ? `${matchedBet.game}_${matchedBet.player}_${matchedBet.prop}`
               : null);
@@ -1308,7 +1597,7 @@
           matchedCount++;
 
           // Update ID cell if it exists
-          const idCell = row.querySelector("[data-betiq-cell='id']");
+          const idCell = row.querySelector(idCellSel);
           if (idCell) {
             updateIdCell(idCell, betId, row);
           }
@@ -1316,15 +1605,25 @@
           missingIdRows.push(row);
           if (window.betiqDebugEnabled) {
             const extractCellText = window.betIQ.extractCellText;
-            const cells = row.querySelectorAll("td");
-            if (cells.length >= 9) {
+            const cells = row.querySelectorAll(dataCellSel);
+            const col = config.columnIndices || {
+              game: 3,
+              gameTime: 4,
+              player: 5,
+              betType: 6,
+              prop: 8,
+            };
+            var minC = window.betIQ.getMinDataRowCells
+              ? window.betIQ.getMinDataRowCells()
+              : 9;
+            if (cells.length >= minC) {
               console.log(
                 "[betIQ-Plugin] Could not match row:",
-                `Game: "${extractCellText(cells[3])}"`,
-                `Player: "${extractCellText(cells[5])}"`,
-                `Prop: "${extractCellText(cells[8])}"`,
-                `Bet Type: "${extractCellText(cells[6])}"`,
-                `Game Time: "${extractCellText(cells[4])}"`
+                'Game: "' + extractCellText(cells[col.game]) + '"',
+                'Player: "' + extractCellText(cells[col.player]) + '"',
+                'Prop: "' + extractCellText(cells[col.prop]) + '"',
+                'Bet Type: "' + extractCellText(cells[col.betType]) + '"',
+                'Game Time: "' + extractCellText(cells[col.gameTime]) + '"'
               );
             }
           }
@@ -1358,6 +1657,44 @@
 
     // Show error if needed
     if (missingIdRows.length > 0 || hasDuplicateIds) {
+      // Detect bookie mismatch whenever we have missing rows (so we can suppress banner and noisy logs)
+      let isLikelyBookieMismatch = false;
+      if (missingIdRows.length > 0 && capturedBettingData.length > 0) {
+        const colB = config.columnIndices || {};
+        const bookieIndicesB = colB.bookieIndices || [1];
+        const extractCellTextB =
+          window.betIQ.extractCellText ||
+          ((c) => c && (c.textContent || c.innerText || "").trim());
+        const normalizeTextB =
+          window.betIQ.normalizeText || ((s) => (s || "").toLowerCase().trim());
+        let tableBookieSampleB = null;
+        const firstRowB = missingIdRows[0];
+        const cellsB = firstRowB.querySelectorAll(dataCellSel);
+        for (const idx of bookieIndicesB) {
+          if (idx < cellsB.length) {
+            const t = normalizeTextB(extractCellTextB(cellsB[idx]));
+            if (t) {
+              tableBookieSampleB = t;
+              break;
+            }
+          }
+        }
+        const apiBookieSampleB = normalizeTextB(
+          capturedBettingData[0].bookie ||
+            capturedBettingData[0].bookmaker ||
+            capturedBettingData[0].book ||
+            (capturedBettingData[0].book_id != null
+              ? String(capturedBettingData[0].book_id)
+              : "")
+        );
+        isLikelyBookieMismatch =
+          !!tableBookieSampleB &&
+          !!apiBookieSampleB &&
+          tableBookieSampleB !== apiBookieSampleB &&
+          !tableBookieSampleB.includes(apiBookieSampleB) &&
+          !apiBookieSampleB.includes(tableBookieSampleB);
+      }
+
       let errorMessage = "⚠️ Row Identifier Issue Detected: ";
 
       if (missingIdRows.length > 0 && hasDuplicateIds) {
@@ -1402,11 +1739,12 @@
         }
       }
 
-      // Re-run validation if we have many missing rows (might indicate selector issue)
+      // Re-run validation only when >50% fail and NOT bookie mismatch
       if (
         missingIdRows.length > 0 &&
         totalDataRows > 0 &&
-        missingIdRows.length > totalDataRows * 0.5
+        missingIdRows.length > totalDataRows * 0.5 &&
+        !isLikelyBookieMismatch
       ) {
         console.warn(
           "[betIQ-Plugin] ⚠️ More than 50% of rows failed to match - possible selector mismatch!"
@@ -1416,7 +1754,12 @@
         window.betIQ._lastSelectorDiagnostics = diagnostics;
       }
 
-      if (window.betIQ.showRowIdError) {
+      // Only show error bar in debug mode; do not show when the only issue is bookie mismatch (expected)
+      if (
+        window.betIQ.showRowIdError &&
+        window.betiqDebugEnabled &&
+        !isLikelyBookieMismatch
+      ) {
         window.betIQ.showRowIdError(errorMessage);
       }
 
@@ -1427,16 +1770,21 @@
         );
         if (window.betiqDebugEnabled) {
           console.group("[betIQ-Plugin] Duplicate Rows (First 5):");
+          const colDup = config.columnIndices || {
+            game: 3,
+            player: 5,
+            prop: 8,
+          };
           duplicateRows.slice(0, 5).forEach((dup, idx) => {
-            const cells = dup.row.querySelectorAll("td");
+            const cells = dup.row.querySelectorAll(dataCellSel);
             const extractCellText =
               window.betIQ.extractCellText ||
               ((cell) => (cell?.textContent || "").trim());
-            console.log(`Duplicate ${idx + 1}:`, {
+            console.log("Duplicate " + (idx + 1) + ":", {
               bet_id: dup.betId,
-              game: extractCellText(cells[3]),
-              player: extractCellText(cells[5]),
-              prop: extractCellText(cells[8]),
+              game: extractCellText(cells[colDup.game]),
+              player: extractCellText(cells[colDup.player]),
+              prop: extractCellText(cells[colDup.prop]),
             });
           });
           console.groupEnd();
@@ -1449,31 +1797,114 @@
         }, 5000);
       }
 
-      if (missingIdRows.length > 0) {
+      if (missingIdRows.length > 0 && !isLikelyBookieMismatch) {
         console.warn(
           `[betIQ-Plugin] ⚠️ ${missingIdRows.length} row(s) without ID (truly unmatched):`,
           missingIdRows
         );
 
-        // Log detailed diagnostics for first few failed rows
-        if (window.betiqDebugEnabled && missingIdRows.length > 0) {
+        // Log detailed diagnostics when many rows fail or debug is on
+        const showFailedAnalysis =
+          window.betiqDebugEnabled ||
+          (totalDataRows > 0 && missingIdRows.length > totalDataRows * 0.5);
+        if (showFailedAnalysis && missingIdRows.length > 0) {
+          const col = config.columnIndices || {
+            game: 3,
+            gameTime: 4,
+            player: 5,
+            betType: 6,
+            prop: 8,
+          };
+          const extractCellText =
+            window.betIQ.extractCellText ||
+            ((cell) =>
+              cell && (cell.textContent || cell.innerText || "").trim());
           console.group("[betIQ-Plugin] Failed Row Analysis");
+          console.log(
+            "[betIQ-Plugin] Host:",
+            typeof window !== "undefined" && window.location
+              ? window.location.hostname
+              : ""
+          );
+          console.log(
+            "[betIQ-Plugin] columnIndices in use:",
+            JSON.stringify(col)
+          );
           missingIdRows.slice(0, 3).forEach((row, idx) => {
-            const cells = row.querySelectorAll("td");
-            console.log(`Row ${idx + 1}:`, {
-              cellCount: cells.length,
-              cells: Array.from(cells).map((cell, i) => ({
-                index: i,
-                text: (cell.textContent || "").trim().substring(0, 30),
-              })),
-            });
+            const cells = row.querySelectorAll(dataCellSel);
+            const cellTexts = Array.from(cells).map((c) =>
+              (extractCellText(c) || "").substring(0, 50)
+            );
+            console.log(
+              `[betIQ-Plugin] Row ${idx + 1} cell texts [0..${
+                cellTexts.length - 1
+              }]:`,
+              cellTexts
+            );
+            console.log(
+              `[betIQ-Plugin] Row ${idx + 1} extracted for matching:`,
+              {
+                game: col.game != null ? cellTexts[col.game] : "(no index)",
+                gameTime:
+                  col.gameTime != null ? cellTexts[col.gameTime] : "(no index)",
+                player:
+                  col.player != null ? cellTexts[col.player] : "(no index)",
+                betType:
+                  col.betType != null ? cellTexts[col.betType] : "(no index)",
+                prop: col.prop != null ? cellTexts[col.prop] : "(no index)",
+              }
+            );
           });
+          if (capturedBettingData && capturedBettingData.length > 0) {
+            console.log(
+              "[betIQ-Plugin] API sample (first 2 records - fields used for matching):"
+            );
+            capturedBettingData.slice(0, 2).forEach((bet, idx) => {
+              const apiGame =
+                bet.game || bet.game_name || bet.match || bet.matchup || "";
+              const apiPlayer =
+                bet.player || bet.player_name || bet.athlete || "";
+              const apiProp = bet.prop || bet.prop_type || bet.stat_type || "";
+              const apiBetType =
+                bet.bet_type || bet.type || bet.direction || "";
+              const apiBookie = bet.bookie || bet.bookmaker || bet.book || "";
+              console.log(`[betIQ-Plugin] API record ${idx + 1}:`, {
+                game: apiGame,
+                player: apiPlayer,
+                prop: apiProp,
+                bet_type: apiBetType,
+                bookie: apiBookie,
+                bet_id: bet.bet_id || bet.id,
+              });
+            });
+            const first = capturedBettingData[0];
+            const hasEmpty =
+              !(
+                first.game ||
+                first.game_name ||
+                first.match ||
+                first.matchup
+              ) ||
+              !(first.prop || first.prop_type || first.stat_type) ||
+              !(first.bet_type || first.type || first.direction);
+            if (hasEmpty) {
+              console.log(
+                "[betIQ-Plugin] API record 1 – all keys (for mapping):",
+                Object.keys(first)
+              );
+              console.log("[betIQ-Plugin] API record 1 – full:", first);
+            }
+          } else {
+            console.log(
+              "[betIQ-Plugin] No captured API data - cannot compare with table."
+            );
+          }
           console.groupEnd();
         }
       }
     } else {
       // Remove error bar if everything is OK
-      const existingError = document.getElementById("betiq-duplicate-id-error");
+      const existingError = document.getElementById(duplicateErrorId);
       if (existingError) {
         existingError.remove();
       }

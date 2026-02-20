@@ -55,22 +55,48 @@
     const extractConfidence = window.betIQ.extractConfidence || (() => null);
 
     const cells = row.querySelectorAll("td");
-    if (cells.length < 9) return null;
+    const col =
+      window.betIQ.getSiteConfig && window.betIQ.getSiteConfig().columnIndices
+        ? window.betIQ.getSiteConfig().columnIndices
+        : {
+            game: 3,
+            gameTime: 4,
+            player: 5,
+            betType: 6,
+            prop: 8,
+            confidence: 18,
+            bookieIndices: [0, 1, 2, 7, 9, 10, 11, 12],
+          };
+    const minCells =
+      Math.max(
+        col.game || 0,
+        col.gameTime || 0,
+        col.player || 0,
+        col.betType || 0,
+        col.prop || 0,
+        col.confidence != null ? col.confidence : 0,
+        ...(col.bookieIndices || [])
+      ) + 1;
+    if (cells.length < minCells) {
+      return null;
+    }
 
     // Extract required fields from table row
-    const gameText = normalizeText(extractCellText(cells[3]));
-    const gameTimeText = normalizeGameTime(extractCellText(cells[4]));
-    const playerText = normalizeText(extractCellText(cells[5]));
-    const betTypeText = normalizeText(extractCellText(cells[6]));
-    const propText = normalizeText(extractCellText(cells[8]));
+    const gameText = normalizeText(extractCellText(cells[col.game]));
+    const gameTimeText = normalizeGameTime(
+      extractCellText(cells[col.gameTime])
+    );
+    const playerText = normalizeText(extractCellText(cells[col.player]));
+    const betTypeText = normalizeText(extractCellText(cells[col.betType]));
+    const propText = normalizeText(extractCellText(cells[col.prop]));
 
-    // Try to extract bookie from table (common indices: 0, 1, 2, 7, 9, 10, etc.)
-    // Bookie is often in early columns or near the game/player columns
+    // Try to extract bookie from table (common indices from site config)
     let tableBookie = null;
     const commonBookies = [
       "sportsbet",
       "tab",
       "bet365",
+      "kambi",
       "pointsbet",
       "unibet",
       "dabble",
@@ -78,7 +104,9 @@
       "ladbrokes",
       "betr",
     ];
-    const possibleBookieIndices = [0, 1, 2, 7, 9, 10, 11, 12];
+    const possibleBookieIndices = col.bookieIndices || [
+      0, 1, 2, 7, 9, 10, 11, 12,
+    ];
 
     for (const idx of possibleBookieIndices) {
       if (idx >= cells.length) continue;
@@ -105,17 +133,21 @@
 
     // Confidence column
     let confidenceNum = null;
-    if (cells.length > 18) {
-      const confidenceText = extractCellText(cells[18]);
+    const confidenceIdx = col.confidence != null ? col.confidence : 18;
+    if (cells.length > confidenceIdx) {
+      const confidenceText = extractCellText(cells[confidenceIdx]);
       confidenceNum = extractConfidence(confidenceText);
     }
 
-    // Game, Player, and Prop must be present
-    if (!gameText || !playerText || !propText) {
+    // Game and Prop must be present; Player may be empty for game/team totals
+    if (!gameText || !propText) {
       return null;
     }
 
     // Try to match with API data
+    var passedGamePlayerProp = 0,
+      rejectedBetType = 0,
+      rejectedBookie = 0;
     for (const bet of apiData) {
       // Extract and normalize API fields
       const apiGame = normalizeText(
@@ -129,6 +161,17 @@
       const apiProp = normalizeText(
         bet.prop || bet.prop_type || bet.stat_type || ""
       );
+      const apiLine = normalizeText(String(bet.line ?? bet.line_value ?? ""));
+      const apiDirection = normalizeText(String(bet.direction ?? ""));
+      const apiPropWithLine = [apiDirection, apiLine]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+      const apiPropMatch =
+        propText === apiProp ||
+        propText === apiPropWithLine ||
+        (apiPropWithLine && propText.includes(apiPropWithLine)) ||
+        (apiProp && propText.includes(apiProp));
       const apiBookie = normalizeText(
         bet.bookie || bet.bookmaker || bet.book || ""
       );
@@ -140,34 +183,44 @@
           : null;
 
       // Required fields must match: Game, Player, Prop, Bet Type
-      // Bet Type is required to prevent false duplicates (Over vs Under are different bets)
-      if (
-        apiGame !== gameText ||
-        apiPlayer !== playerText ||
-        apiProp !== propText
-      ) {
+      // Prop can match exactly or via API direction+line (e.g. "under 18.5")
+      if (apiGame !== gameText || apiPlayer !== playerText || !apiPropMatch) {
         continue;
       }
+      passedGamePlayerProp++;
 
       // Bet Type matching (REQUIRED - prevents false duplicates)
-      // Over and Under for the same prop are different bets and should match different API records
+      // Allow table "Pts+Rebs ALT" to match API "Pts+Rebs"; exact match or table contains API (e.g. stat type + " ALT")
       if (betTypeText && apiBetType) {
-        if (apiBetType !== betTypeText) {
-          continue; // Reject if bet type doesn't match
+        const betTypeMatch =
+          apiBetType === betTypeText ||
+          betTypeText.includes(apiBetType) ||
+          apiBetType.includes(betTypeText);
+        if (!betTypeMatch) {
+          rejectedBetType++;
+          continue;
         }
       } else if (betTypeText || apiBetType) {
-        // If one has bet type but the other doesn't, reject to be safe
+        rejectedBetType++;
         continue;
       }
 
       // Bookie matching (REQUIRED if both have bookie - prevents false duplicates)
-      // Same bet from different bookies should match different API records
-      if (tableBookie && apiBookie) {
-        if (apiBookie !== tableBookie) {
-          continue; // Reject if bookie doesn't match
+      // Skip bookie requirement when table shows Kambi or Tab: API uses book_id (e.g. 104, 365) so names never match
+      var tableBookieNorm = tableBookie ? tableBookie.toLowerCase().trim() : "";
+      var skipBookieCheck =
+        tableBookieNorm === "kambi" || tableBookieNorm === "tab";
+      if (!skipBookieCheck && tableBookie && apiBookie) {
+        const bookieMatch =
+          apiBookie === tableBookie ||
+          tableBookie.includes(apiBookie) ||
+          apiBookie.includes(tableBookie);
+        if (!bookieMatch) {
+          rejectedBookie++;
+          continue;
         }
       }
-      // If only one has bookie, we still allow match (bookie might not be in table or API)
+      // If only one has bookie (or Kambi/Tab), we allow match
 
       // Game Time matching (optional - if required fields match, we accept even if game time differs)
       // We check it but don't reject matches based on it

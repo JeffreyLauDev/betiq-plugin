@@ -116,32 +116,39 @@
    * Update all Allocation cells in the table
    */
   window.betIQ.updateAllocationCells = function () {
-    const table = document.querySelector("table");
+    const table =
+      window.betIQ.getTableOrContainer && window.betIQ.getTableOrContainer();
     if (!table) {
       return;
     }
 
-    const dataRows = Array.from(
-      table.querySelectorAll("tbody tr, table > tr")
-    ).filter((row) => {
-      const hasTh = row.querySelectorAll("th").length > 0;
-      const hasTd = row.querySelectorAll("td").length > 0;
-      return hasTd && !hasTh;
-    });
+    var config =
+      (window.betIQ.getSiteConfig && window.betIQ.getSiteConfig()) || {};
+    var headerCellSel = config.headerCellSelector || "th";
+    var dataCellSel = config.dataCellSelector || "td";
+    var sel = config.betiqSelectors || {};
+    var allocationCellSel =
+      sel.allocationCell || "[data-betiq-cell='allocation']";
+    var monitorCellSel = sel.monitorCell || "[data-betiq-cell='monitor']";
+
+    const dataRows = Array.from(window.betIQ.getDataRows(table)).filter(
+      (row) => {
+        const hasTh = row.querySelectorAll(headerCellSel).length > 0;
+        const hasTd = row.querySelectorAll(dataCellSel).length > 0;
+        return hasTd && !hasTh;
+      }
+    );
 
     dataRows.forEach((row) => {
-      const allocationCell = row.querySelector(
-        "[data-betiq-cell='allocation']"
-      );
+      const allocationCell = row.querySelector(allocationCellSel);
       if (allocationCell) {
         window.betIQ.updateAllocationCell(allocationCell, row);
       }
       // Also update monitor cell when allocation changes
-      const monitorCell = row.querySelector("[data-betiq-cell='monitor']");
+      const monitorCell = row.querySelector(monitorCellSel);
       if (monitorCell && window.betIQ.updateMonitorCell) {
         window.betIQ.updateMonitorCell(monitorCell, row);
       }
     });
   };
 })();
-

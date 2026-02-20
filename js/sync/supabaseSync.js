@@ -34,6 +34,7 @@
   };
 
   let syncChannel = null;
+  let lastRealtimeSetupAt = 0; // avoid double-init tearing down the channel within 2s
   let isInitialized = false;
   let pendingChanges = new Map(); // Track changes waiting to sync
   let syncTimeout = null;
@@ -153,8 +154,7 @@
 
       // Handle different state paths
       if (path === "config.bankroll" || path === "config.kellyFraction") {
-        // For shared bankroll/kelly: Update ALL users' configs when one user updates
-        // This enables real-time shared config across all users
+        // Sync current user's bankroll/kelly to their user_config row (RLS allows only own row)
         const configKey =
           path === "config.bankroll" ? "bankroll" : "kelly_fraction";
 
@@ -209,59 +209,12 @@
           return;
         }
 
-        // Now update ALL other users' configs to match (shared config)
-        // Get all other users (excluding current user to avoid duplicate update)
-        const { data: allUsers, error: usersError } = await client
-          .from("user_config")
-          .select("user_id, bankroll, kelly_fraction")
-          .neq("user_id", finalUserId);
+        // Only current user's row is updated (RLS does not allow updating other users' rows).
+        // If you need shared bankroll/kelly across users, use a server function or a shared_config table with appropriate RLS.
 
-        if (!usersError && allUsers && allUsers.length > 0) {
-          // Update all other users (excluding current user)
-          const updates = allUsers.map((userConfig) => {
-            const updateData = {
-              user_id: userConfig.user_id,
-              [configKey]: value,
-              updated_at: new Date().toISOString(),
-            };
-
-            // Preserve the other field for each user
-            if (path === "config.bankroll") {
-              updateData.kelly_fraction =
-                userConfig.kelly_fraction !== null &&
-                userConfig.kelly_fraction !== undefined
-                  ? userConfig.kelly_fraction
-                  : currentUserUpdateData.kelly_fraction;
-            } else {
-              updateData.bankroll =
-                userConfig.bankroll !== null &&
-                userConfig.bankroll !== undefined
-                  ? userConfig.bankroll
-                  : currentUserUpdateData.bankroll;
-            }
-
-            return updateData;
-          });
-
-          // Batch update all other users
-          const { error: batchError } = await client
-            .from("user_config")
-            .upsert(updates, {
-              onConflict: "user_id",
-            });
-
-          if (batchError) {
-            logger.error(`Error updating all users' ${configKey}:`, batchError);
-          } else {
-            logger.debug(
-              `Updated ${updates.length} other users' ${configKey} to ${value}`
-            );
-          }
-        }
-
-        // Always show success message
+        // Success message
         console.log(
-          `[betIQ-Sync] ✅ Successfully synced ${path} to Supabase (shared across all users):`,
+          `[betIQ-Sync] ✅ Successfully synced ${path} to Supabase:`,
           {
             bankroll:
               path === "config.bankroll"
@@ -383,19 +336,19 @@
     }
 
     try {
-      // Try to get user info from auth.users via admin API
-      // Note: This requires a public function in Supabase or storing email in tables
-      // For now, we'll use a fallback approach
-
-      // Option 1: If you add user_email column to your tables, use that
-      // Option 2: Create a Supabase function to get user email
-      // Option 3: Store username in user_metadata during signup
-
-      // Fallback: Use shortened user ID
-      const displayName = "User " + userId.substring(0, 8);
+      const user = window.betIQ.auth?.getCurrentUser();
+      const displayName =
+        "User " +
+        (user?.raw_user_meta_data?.display_name ||
+          user?.user_metadata?.display_name ||
+          user?.raw_user_meta_data?.username ||
+          user?.user_metadata?.username ||
+          user?.email ||
+          userId.substring(0, 8));
       userDisplayNameCache.set(userId, displayName);
       return displayName;
     } catch (error) {
+      logger.error("Error getting displayName from user:", error);
       const fallback = "Another user";
       userDisplayNameCache.set(userId, fallback);
       return fallback;
@@ -408,17 +361,33 @@
    * For stake allocations: Merges with existing data (per-user-per-bet)
    * For mix bet combinations: Reloads all combinations
    */
-  async function handleRemoteChange(payload, eventType) {
+  async function handleRemoteChange(payload, eventTypeParam) {
+    // Supabase may send eventType as payload.eventType (sometimes lowercase)
+    const eventType = (eventTypeParam || payload?.eventType || payload?.type || "")
+      .toUpperCase();
+
     const userId = await getCurrentUserId();
-    const remoteUserId = payload.new?.user_id || payload.old?.user_id;
+    const remoteUserId = payload?.new?.user_id || payload?.old?.user_id;
+
+    // Always log so we can see in console when the other browser's updates arrive (diagnose one-way sync)
+    logger.warn("Remote change received", {
+      table: payload?.table,
+      eventType,
+      remoteUserId: remoteUserId ? remoteUserId.substring(0, 8) + "..." : null,
+      currentUserId: userId ? userId.substring(0, 8) + "..." : null,
+    });
 
     // Get remote user display name
     const remoteUserDisplayName = await getUserDisplayName(remoteUserId);
 
     try {
       // Determine which state path this change affects
-      if (payload.table === "user_config") {
+      if (payload?.table === "user_config") {
         const config = payload.new;
+        if (!config) {
+          logger.debug("user_config event has no payload.new, skipping");
+          return;
+        }
 
         // For shared bankroll/kelly config: Update local state when ANY user updates
         // This enables real-time shared config across all users
@@ -453,8 +422,8 @@
           }
         }
 
-        // Show notification if update came from another user
-        if (configUpdated && remoteUserId !== userId) {
+        // Show notification whenever we applied a remote config update (other tab or other user)
+        if (configUpdated) {
           const updates = [];
           if (config.bankroll !== undefined) {
             updates.push(`bankroll to $${config.bankroll?.toFixed(2) || 0}`);
@@ -464,17 +433,22 @@
           }
 
           if (updates.length > 0) {
-            window.betIQ.snackbar?.show(
-              `${remoteUserDisplayName} updated ${updates.join(" and ")}`,
-              {
-                type: "info",
-                user: remoteUserDisplayName,
-              }
-            );
+            const isSameUser = remoteUserId && userId && remoteUserId === userId;
+            const message = isSameUser
+              ? `Config synced from your other tab: ${updates.join(" and ")}`
+              : `${remoteUserDisplayName} updated ${updates.join(" and ")}`;
+            window.betIQ.snackbar?.show(message, {
+              type: "info",
+              user: isSameUser ? undefined : remoteUserDisplayName,
+            });
           }
         }
-      } else if (payload.table === "user_stake_allocations") {
+      } else if (payload?.table === "user_stake_allocations") {
         const allocation = payload.new || payload.old;
+        if (!allocation) {
+          logger.debug("user_stake_allocations event has no new/old, skipping");
+          return;
+        }
         const betId = allocation.bet_id;
         const allocationUserId = allocation.user_id;
 
@@ -605,10 +579,21 @@
       return;
     }
 
+    // Avoid double-init: if we just set up a channel in the last 2s, don't tear it down (prevents CLOSED then TIMED_OUT)
+    if (syncChannel && Date.now() - lastRealtimeSetupAt < 2000) {
+      console.log("[betIQ-Sync] Skip Realtime setup (recent setup, avoid double-init)");
+      return;
+    }
+
+    lastRealtimeSetupAt = Date.now();
     // Remove existing channel if any
     if (syncChannel) {
       client.removeChannel(syncChannel);
+      syncChannel = null;
     }
+
+    // Debug: so we can see on which tab/browser the channel was set up
+    console.log("[betIQ-Sync] 🔌 Realtime channel setting up at", new Date().toISOString());
 
     // Create new channel for real-time updates
     // No filter needed - RLS allows reading all data, and handleRemoteChange filters own changes
@@ -623,6 +608,8 @@
           // No filter - listen to all users (RLS handles security)
         },
         (payload) => {
+          // Debug: if this never appears on Browser A when B updates, A is not receiving Realtime events
+          console.log("[betIQ-Sync] 📥 Realtime event (user_config):", payload?.eventType, payload?.new ? "has new" : "no new");
           handleRemoteChange(payload, payload.eventType);
         }
       )
@@ -651,12 +638,40 @@
         }
       )
       .subscribe((status) => {
+        // Debug: always log so we can see if A's channel ever goes to ERROR/CLOSED/TIMED_OUT
+        console.log("[betIQ-Sync] Realtime channel status:", status);
         if (status === "SUBSCRIBED") {
           logger.info("Real-time sync subscribed (all users)");
-        } else if (status === "CHANNEL_ERROR") {
-          logger.error("Real-time sync channel error");
+        } else if (
+          status === "CHANNEL_ERROR" ||
+          status === "CLOSED" ||
+          status === "TIMED_OUT"
+        ) {
+          logger.error(
+            "Real-time sync channel " + status.toLowerCase() + " - will retry in 3s"
+          );
+          syncChannel = null;
+          lastRealtimeSetupAt = 0; // allow retry to create new channel
+          setTimeout(() => {
+            if (window.betIQ?.auth?.isLoggedIn() && !syncChannel) {
+              setupRealtimeSubscriptions();
+            }
+          }, 3000);
         }
       });
+  }
+
+  let visibilityResubscribeTimeout = null;
+  function onVisibilityChange() {
+    if (document.visibilityState !== "visible") return;
+    if (!window.betIQ?.auth?.isLoggedIn()) return;
+    // Debounce: resubscribe when tab becomes visible (recovers dropped Realtime connection)
+    if (visibilityResubscribeTimeout) clearTimeout(visibilityResubscribeTimeout);
+    visibilityResubscribeTimeout = setTimeout(() => {
+      visibilityResubscribeTimeout = null;
+      console.log("[betIQ-Sync] Tab visible - re-subscribing Realtime");
+      setupRealtimeSubscriptions();
+    }, 500);
   }
 
   /**
@@ -670,9 +685,13 @@
     // Subscribe to state changes
     window.betIQ.state.subscribe(
       (state, changedPaths, newValue, oldValue, options) => {
-        // Don't sync if change came from remote
+        // Don't sync if change came from remote (other browser/tab)
         if (options?.fromRemote) {
-          logger.debug("Skipping sync - change came from remote");
+          const paths = Array.isArray(changedPaths) ? changedPaths : [changedPaths];
+          logger.warn(
+            "State applied from remote (no sync):",
+            paths.map((p) => `${p}=${newValue}`).join(", ")
+          );
           return;
         }
 
@@ -686,10 +705,10 @@
           return;
         }
 
-        // Check if sync is initialized
+        // Check if sync is initialized (during auth restore, state is set before sync init completes - skip silently)
         if (!isInitialized) {
-          console.warn(
-            "[betIQ-Sync] ⚠️ Sync not initialized. State changes won't be synced."
+          logger.debug(
+            "[betIQ-Sync] Sync not initialized yet; state change will not be synced (normal during login)."
           );
           return;
         }
@@ -708,15 +727,27 @@
           if (shouldSync) {
             logger.debug(`Queuing sync for ${path}`);
             console.log(`[betIQ-Sync] 📤 Queuing sync for ${path}:`, newValue);
+
             // Debounce sync operations
-            pendingChanges.set(path, { newValue, oldValue });
+            // Preserve the EARLIEST oldValue to detect all changes in a batch
+            if (!pendingChanges.has(path)) {
+              // First change for this path - store both values
+              pendingChanges.set(path, { newValue, oldValue });
+            } else {
+              // Subsequent change - update newValue but keep original oldValue
+              const existing = pendingChanges.get(path);
+              pendingChanges.set(path, {
+                newValue: newValue, // Latest value
+                oldValue: existing.oldValue, // Original value before first change
+              });
+            }
 
             // Clear existing timeout
             if (syncTimeout) {
               clearTimeout(syncTimeout);
             }
 
-            // Sync after 500ms debounce
+            // Sync after 150ms debounce (reduced from 500ms for better UX)
             syncTimeout = setTimeout(() => {
               logger.debug(`Executing sync for ${pendingChanges.size} path(s)`);
               console.log(
@@ -727,7 +758,7 @@
                 syncToSupabase(changePath, change.newValue, change.oldValue);
               });
               pendingChanges.clear();
-            }, 500);
+            }, 150);
           } else {
             logger.debug(`Path ${path} is not in sync whitelist`);
             // Always warn if trying to sync a non-whitelisted path (might indicate a bug)
@@ -765,6 +796,10 @@
     await loadInitialDataFromSupabase();
 
     isInitialized = true;
+    // Re-subscribe when tab becomes visible (browsers often drop Realtime when tab is in background)
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", onVisibilityChange);
+    }
     // Always log sync initialization (critical message)
     console.log("[betIQ-Sync] ✅ Sync initialized successfully");
     // Note: getCurrentUserId is now async, so we can't use it synchronously here

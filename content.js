@@ -52,15 +52,16 @@
             // Log all Supabase calls
             if (url.includes('supabase.co')) {
               console.log('[betIQ-MAIN] Fetch to Supabase:', url);
-              
-              if (url.includes('betting_alerts')) {
+              var isTarget = window.betIQ && window.betIQ.isTargetEndpointUrl && window.betIQ.isTargetEndpointUrl(url);
+              if (isTarget) {
                 console.log('[betIQ-MAIN] 🎯 Target endpoint detected!');
               }
             }
             
             // Call original fetch
             return nativeFetch.apply(this, args).then(response => {
-              if (url.includes('betting_alerts')) {
+              var isTarget = window.betIQ && window.betIQ.isTargetEndpointUrl && window.betIQ.isTargetEndpointUrl(url);
+              if (isTarget) {
                 response.clone().json().then(data => {
                   // Send data to content script via custom event
                   window.dispatchEvent(new CustomEvent('betIQ-data', { 
